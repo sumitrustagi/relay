@@ -5,10 +5,10 @@ from flask_login import login_required, current_user
 from functools import wraps
 from app import db
 from app.models import (User, MSGraphConfig, WebexConfig, CUCMConfig, CUCMCluster,
-                        PlatformSettings,
-                        DIDCountry, DIDRegion, DIDBlock, AuditLog, LdapServer,
-                        PhoneNumber, InventorySyncLog,
-                        SMTPConfig, CertDevice, CERT_DEVICE_PRODUCTS, log_audit)
+                         PlatformSettings,
+                         DIDCountry, DIDRegion, DIDBlock, AuditLog, LdapServer,
+                         PhoneNumber, InventorySyncLog,
+                         SMTPConfig, CertDevice, CERT_DEVICE_PRODUCTS, log_audit)
 import csv, io
 
 admin_bp = Blueprint("admin", __name__)
@@ -29,12 +29,12 @@ def admin_required(fn):
 @admin_bp.route("/")
 @admin_required
 def index():
-    users = User.query.order_by(User.username).all()
-    cfg = MSGraphConfig.query.first()
-    webex_cfg = WebexConfig.get()
+    users         = User.query.order_by(User.username).all()
+    cfg           = MSGraphConfig.query.first()
+    webex_cfg     = WebexConfig.get()
     cucm_clusters = CUCMCluster.query.order_by(CUCMCluster.label).all()
-    smtp_cfg = SMTPConfig.get()
-    ps = PlatformSettings.get()
+    smtp_cfg      = SMTPConfig.get()
+    ps            = PlatformSettings.get()
     return render_template("admin/index.html",
                            users=users, cfg=cfg,
                            webex_cfg=webex_cfg,
@@ -48,27 +48,27 @@ def index():
 @admin_required
 def save_platform_settings():
     ps = PlatformSettings.get()
-    ps.client_name = request.form.get("client_name", "").strip()
-    ps.has_teams = "has_teams" in request.form
-    ps.has_webex = "has_webex" in request.form
-    ps.has_cucm = "has_cucm" in request.form
+    ps.client_name      = request.form.get("client_name", "").strip()
+    ps.has_teams        = "has_teams"        in request.form
+    ps.has_webex        = "has_webex"        in request.form
+    ps.has_cucm         = "has_cucm"         in request.form
     ps.has_cert_monitor = "has_cert_monitor" in request.form
-    ps.has_did = "has_did" in request.form
-    ps.has_ldap = "has_ldap" in request.form
-    ps.has_audit = "has_audit" in request.form
+    ps.has_did          = "has_did"          in request.form
+    ps.has_ldap         = "has_ldap"         in request.form
+    ps.has_audit        = "has_audit"        in request.form
     db.session.commit()
     try:
         from app.utils.env_manager import write_env_vars
         ps2 = PlatformSettings.get()
         write_env_vars({
-            "HAS_TEAMS": str(ps2.has_teams).lower(),
-            "HAS_WEBEX": str(ps2.has_webex).lower(),
-            "HAS_CUCM": str(ps2.has_cucm).lower(),
+            "HAS_TEAMS":        str(ps2.has_teams).lower(),
+            "HAS_WEBEX":        str(ps2.has_webex).lower(),
+            "HAS_CUCM":         str(ps2.has_cucm).lower(),
             "HAS_CERT_MONITOR": str(ps2.has_cert_monitor).lower(),
-            "HAS_DID": str(ps2.has_did).lower(),
-            "HAS_LDAP": str(ps2.has_ldap).lower(),
-            "HAS_AUDIT": str(ps2.has_audit).lower(),
-            "CLIENT_NAME": ps2.client_name or "",
+            "HAS_DID":          str(ps2.has_did).lower(),
+            "HAS_LDAP":         str(ps2.has_ldap).lower(),
+            "HAS_AUDIT":        str(ps2.has_audit).lower(),
+            "CLIENT_NAME":      ps2.client_name or "",
         })
     except Exception:
         pass
@@ -82,21 +82,21 @@ def save_platform_settings():
 @admin_required
 def save_graph_config():
     cfg = MSGraphConfig.query.first() or MSGraphConfig()
-    cfg.tenant_id = request.form.get("tenant_id", "").strip()
-    cfg.client_id = request.form.get("client_id", "").strip()
+    cfg.tenant_id                = request.form.get("tenant_id", "").strip()
+    cfg.client_id                = request.form.get("client_id", "").strip()
     if request.form.get("client_secret"):
-        cfg.client_secret = request.form["client_secret"]
-    cfg.service_account_upn = request.form.get("service_account_upn", "").strip()
+        cfg.client_secret        = request.form["client_secret"]
+    cfg.service_account_upn      = request.form.get("service_account_upn", "").strip()
     if request.form.get("service_account_password"):
         cfg.service_account_password = request.form["service_account_password"]
     db.session.add(cfg); db.session.commit()
     try:
         from app.utils.env_manager import write_env_vars
         write_env_vars({
-            "TEAMS_TENANT_ID": cfg.tenant_id or "",
-            "TEAMS_CLIENT_ID": cfg.client_id or "",
+            "TEAMS_TENANT_ID":  cfg.tenant_id or "",
+            "TEAMS_CLIENT_ID":  cfg.client_id or "",
             "TEAMS_CLIENT_SECRET": cfg.client_secret or "",
-            "TEAMS_SVC_UPN": cfg.service_account_upn or "",
+            "TEAMS_SVC_UPN":    cfg.service_account_upn or "",
         })
     except Exception:
         pass
@@ -142,10 +142,10 @@ def save_webex_config():
         from app.utils.env_manager import write_env_vars
         w2 = WebexConfig.get()
         write_env_vars({
-            "WEBEX_CLIENT_ID":      w2.client_id or "",
-            "WEBEX_CLIENT_SECRET":  w2.client_secret or "",
-            "WEBEX_REFRESH_TOKEN":  w2.refresh_token or "",
-            "WEBEX_ORG_ID":         w2.org_id or "",
+            "WEBEX_CLIENT_ID":     w2.client_id or "",
+            "WEBEX_CLIENT_SECRET": w2.client_secret or "",
+            "WEBEX_REFRESH_TOKEN": w2.refresh_token or "",
+            "WEBEX_ORG_ID":        w2.org_id or "",
         })
     except Exception:
         pass
@@ -168,15 +168,15 @@ def add_cucm_cluster():
         flash("Label, host, username, and password are all required.", "danger")
         return redirect(url_for("admin.index"))
     c = CUCMCluster(
-        label        = label,
-        cucm_host    = host,
-        cucm_username= username,
-        cucm_password= password,
-        cucm_version = version,
-        verify_ssl   = ssl,
-        is_enabled   = True,
-        created_by   = current_user.username,
-    )  # FIX: was missing closing parenthesis
+        label         = label,
+        cucm_host     = host,
+        cucm_username = username,
+        cucm_password = password,
+        cucm_version  = version,
+        verify_ssl    = ssl,
+        is_enabled    = True,
+        created_by    = current_user.username,
+    )
     db.session.add(c); db.session.commit()
     log_audit("CREATE", "cucm_cluster", c.id, f"Added CUCM cluster: {label} ({host})")
     flash(f"CUCM cluster '{label}' added.", "success")
@@ -187,13 +187,13 @@ def add_cucm_cluster():
 @admin_required
 def edit_cucm_cluster(cid):
     c = CUCMCluster.query.get_or_404(cid)
-    c.label        = request.form.get("label",         c.label).strip()        or c.label
-    c.cucm_host    = request.form.get("cucm_host",     c.cucm_host).strip()    or c.cucm_host
-    c.cucm_username= request.form.get("cucm_username", c.cucm_username).strip() or c.cucm_username
+    c.label         = request.form.get("label",         c.label).strip()        or c.label
+    c.cucm_host     = request.form.get("cucm_host",     c.cucm_host).strip()    or c.cucm_host
+    c.cucm_username = request.form.get("cucm_username", c.cucm_username).strip() or c.cucm_username
     if request.form.get("cucm_password"):
         c.cucm_password = request.form["cucm_password"]
-    c.cucm_version = request.form.get("cucm_version",  c.cucm_version).strip() or c.cucm_version
-    c.verify_ssl   = "verify_ssl" in request.form
+    c.cucm_version  = request.form.get("cucm_version",  c.cucm_version).strip() or c.cucm_version
+    c.verify_ssl    = "verify_ssl" in request.form
     db.session.commit()
     try:
         from app.utils.env_manager import write_env_vars
@@ -201,9 +201,9 @@ def edit_cucm_cluster(cid):
         first = CUCMCluster.query.filter_by(is_enabled=True).first()
         if first:
             write_env_vars({
-                "CUCM_HOST":     first.cucm_host     or "",
+                "CUCM_HOST":     first.cucm_host or "",
                 "CUCM_USERNAME": first.cucm_username or "",
-                "CUCM_VERSION":  first.cucm_version  or "12.5",
+                "CUCM_VERSION":  first.cucm_version or "12.5",
             })
     except Exception:
         pass
@@ -252,17 +252,17 @@ def test_cucm_cluster(cid):
 @admin_required
 def save_smtp_config():
     s = SMTPConfig.get()
-    s.host      = request.form.get("host", "").strip()
-    s.port      = int(request.form.get("port", 587) or 587)
-    s.username  = request.form.get("username", "").strip() or None
+    s.host      = request.form.get("host",      "").strip()
+    s.port      = int(request.form.get("port",  587) or 587)
+    s.username  = request.form.get("username",  "").strip() or None
     if request.form.get("password"):
         s.password = request.form["password"]
-    s.use_tls   = "use_tls"  in request.form
-    s.use_ssl   = "use_ssl"  in request.form
+    s.use_tls   = "use_tls"   in request.form
+    s.use_ssl   = "use_ssl"   in request.form
     s.from_addr = request.form.get("from_addr", "").strip() or None
     s.from_name = request.form.get("from_name", "").strip() or None
     s.alert_to  = request.form.get("alert_to",  "").strip() or None
-    s.enabled   = "enabled"  in request.form
+    s.enabled   = "enabled"   in request.form
     db.session.commit()
     try:
         from app.utils.env_manager import write_env_vars
@@ -303,7 +303,7 @@ def create_user():
     username = request.form.get("username", "").strip()
     email    = request.form.get("email",    "").strip()
     password = request.form.get("password", "")
-    role     = request.form.get("role",     "user")
+    role     = request.form.get("role", "user")
 
     VALID_ROLES = ("admin", "superuser", "user")
     if role not in VALID_ROLES:
@@ -320,13 +320,13 @@ def create_user():
         return redirect(url_for("admin.index"))
 
     u = User(
-        username      = username,
-        email         = email,
-        role          = role,
-        teams_upn     = request.form.get("teams_upn",       "").strip() or None,
-        teams_extension = request.form.get("teams_extension","").strip() or None,
-        user_platform = request.form.get("user_platform",   "teams") or "teams",
-    )  # FIX: was missing closing parenthesis
+        username        = username,
+        email           = email,
+        role            = role,
+        teams_upn       = request.form.get("teams_upn",       "").strip() or None,
+        teams_extension = request.form.get("teams_extension", "").strip() or None,
+        user_platform   = request.form.get("user_platform",   "teams") or "teams",
+    )
     u.set_password(password)
     db.session.add(u); db.session.commit()
     log_audit("CREATE", "user", u.id, f"Created user '{username}' role={role}")
@@ -383,7 +383,7 @@ def delete_user(uid):
 @admin_bp.route("/user/<int:uid>/change-role", methods=["POST"])
 @admin_required
 def change_role(uid):
-    u = User.query.get_or_404(uid)
+    u        = User.query.get_or_404(uid)
     new_role = request.form.get("role", "user")
     VALID_ROLES = ("admin", "superuser", "user")
     if new_role not in VALID_ROLES:
@@ -393,7 +393,7 @@ def change_role(uid):
         flash("You cannot remove your own admin role.", "danger")
         return redirect(url_for("admin.index"))
     old_role = u.role
-    u.role = new_role
+    u.role   = new_role
     db.session.commit()
     log_audit("UPDATE", "user", uid, f"Role changed: {u.username} {old_role} → {new_role}")
     flash(f"Role for '{u.username}' changed from {old_role} to {new_role}.", "success")
@@ -413,7 +413,7 @@ def bulk_import_users():
         f.stream.seek(0)
     except Exception:
         f.stream.seek(0)
-    reader = csv.DictReader(io.StringIO(f.read().decode("utf-8-sig")))
+    reader  = csv.DictReader(io.StringIO(f.read().decode("utf-8-sig")))
     VALID_ROLES = ("admin", "superuser", "user")
     created = 0
     skipped = 0
@@ -425,16 +425,18 @@ def bulk_import_users():
         if rl not in VALID_ROLES:
             rl = "user"
         if not un or not em or not pw:
-            skipped += 1; continue
+            skipped += 1
+            continue
         if User.query.filter_by(username=un).first():
-            skipped += 1; continue
+            skipped += 1
+            continue
         u = User(
             username      = un,
             email         = em,
             role          = rl,
             teams_upn     = row.get("teams_upn", "").strip() or None,
-            user_platform = row.get("platform",  "teams").strip() or "teams",
-        )  # FIX: was missing closing parenthesis
+            user_platform = row.get("platform", "teams").strip() or "teams",
+        )
         u.set_password(pw)
         db.session.add(u); created += 1
     db.session.commit()
@@ -469,11 +471,11 @@ def bulk_import_template():
     csv.writer(si).writerows([
         ["username", "email", "password", "role", "platform", "teams_upn", "teams_extension"],
         ["# role values: user | superuser | admin", "", "", "", "", "", ""],
-        ["# platform values: teams | webex | cucm",  "", "", "", "", "", ""],
-        ["jsmith",       "jsmith@example.com",       "Pass@123!", "user",      "teams", "jsmith@tenant.com",   "+3227001234"],
-        ["m.dupont",     "m.dupont@example.com",     "Pass@123!", "user",      "webex", "m.dupont@example.com","2001"],
-        ["helpdesk.su",  "hd.su@example.com",        "Pass@123!", "superuser", "teams", "helpdesk@tenant.com", "+3227009999"],
-        ["relay.admin",  "relay.admin@example.com",  "Pass@123!", "admin",     "teams", "relay.admin@tenant.com",""],
+        ["# platform values: teams | webex | cucm", "", "", "", "", "", ""],
+        ["jsmith",      "jsmith@example.com",      "Pass@123!", "user",      "teams", "jsmith@tenant.com",      "+3227001234"],
+        ["m.dupont",    "m.dupont@example.com",    "Pass@123!", "user",      "webex", "m.dupont@example.com",   "2001"],
+        ["helpdesk.su", "hd.su@example.com",       "Pass@123!", "superuser", "teams", "helpdesk@tenant.com",    "+3227009999"],
+        ["relay.admin", "relay.admin@example.com", "Pass@123!", "admin",     "teams", "relay.admin@tenant.com", ""],
     ])
     return Response(si.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition":
@@ -497,7 +499,7 @@ def did_index():
 @admin_bp.route("/did/country/add", methods=["POST"])
 @admin_required
 def add_country():
-    name = request.form.get("name",     "").strip()
+    name = request.form.get("name", "").strip()
     iso  = request.form.get("iso_code", "").strip().upper()[:2]
     if not name:
         flash("Country name required.", "danger")
@@ -564,15 +566,15 @@ def add_did_block():
         flash("Country, start and end number are required.", "danger")
         return redirect(url_for("admin.did_index"))
     b = DIDBlock(
-        country_id  = country_id,
-        region_id   = region_id,
-        label       = request.form.get("label", "").strip() or None,
-        start_number= start,
-        end_number  = end,
-        number_type = request.form.get("number_type", "mixed"),
-        notes       = request.form.get("notes",  "").strip() or None,
-        created_by  = current_user.username,
-    )  # FIX: was missing closing parenthesis
+        country_id   = country_id,
+        region_id    = region_id,
+        label        = request.form.get("label", "").strip() or None,
+        start_number = start,
+        end_number   = end,
+        number_type  = request.form.get("number_type", "mixed"),
+        notes        = request.form.get("notes", "").strip() or None,
+        created_by   = current_user.username,
+    )
     db.session.add(b); db.session.commit()
     log_audit("CREATE", "did_block", b.id,
               f"Added block {start}–{end} country={country_id} region={region_id}")
@@ -640,19 +642,17 @@ def export_all_dids(bid):
     b  = DIDBlock.query.get_or_404(bid)
     rs = scan_block_unified(b.start_number, b.end_number)
     si = io.StringIO(); w = csv.writer(si)
-    w.writerow(["number", "status", "platform", "assigned_to",
-                "assignment_type", "number_type", "location"])
+    w.writerow(["number", "status", "platform", "assigned_to", "assignment_type",
+                "number_type", "location"])
     for n in rs.get("numbers", []):
         if n["status"] == "available":
             w.writerow([n["number"], "available", "", "", "", "", ""])
         else:
             for det in n["details"]:
                 w.writerow([n["number"], "assigned",
-                            det.get("platform",      ""),
-                            det.get("assigned_to",   ""),
-                            det.get("type",          ""),
-                            det.get("number_type",   ""),
-                            det.get("location",      "")])
+                            det.get("platform", ""), det.get("assigned_to", ""),
+                            det.get("type", ""),     det.get("number_type", ""),
+                            det.get("location", "")])
     log_audit("EXPORT", "did_block", bid,
               f"Full DID export {b.start_number}–{b.end_number}: {rs.get('total', 0)} numbers")
     return Response(si.getvalue(), mimetype="text/csv",
@@ -666,8 +666,8 @@ def export_all_dids(bid):
 def sync_inventory():
     from app.utils.inventory_sync import sync_all
     results = sync_all()
-    parts = [f"{p}: {r['total']} numbers" if r["ok"] else f"{p}: ERROR — {r['error']}"
-             for p, r in results.items()]
+    parts   = [f"{p}: {r['total']} numbers" if r["ok"] else f"{p}: ERROR — {r['error']}"
+               for p, r in results.items()]
     flash("Inventory synced — " + " | ".join(parts) if parts else "No platforms to sync.", "success")
     log_audit("ACTION", "did_inventory", None, "Manual sync: " + "; ".join(parts))
     return redirect(url_for("admin.did_index"))
@@ -779,6 +779,7 @@ def import_locations():
 @admin_bp.route("/audit-logs")
 @admin_required
 def audit_logs():
+    # Template filters by 'username' and 'action' params separately
     username_filter = request.args.get("username", "").strip()
     action_filter   = request.args.get("action",   "").strip()
 
@@ -788,6 +789,7 @@ def audit_logs():
     if action_filter:
         query = query.filter(AuditLog.action == action_filter)
 
+    # Template uses logs|length and iterates logs directly — return list, not pagination
     logs = query.limit(500).all()
     return render_template("admin/audit_logs.html", logs=logs)
 
