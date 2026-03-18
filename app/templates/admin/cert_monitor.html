@@ -361,6 +361,11 @@
           </div>
           {% endfor %}
         </div>
+
+        {# Connection method hint — updates dynamically when product is selected #}
+        <div id="connHint" class="alert py-2 mb-2 small d-flex align-items-center gap-2" style="border-radius:8px;" role="alert">
+        </div>
+
         <div class="row g-2">
           <div class="col-md-6">
             <label class="form-label fw-semibold small">Hostname / FQDN <span class="text-danger">*</span></label>
@@ -614,15 +619,70 @@ document.querySelectorAll('[data-bs-target="#tab-paste-u"]').forEach(function(ta
   });
 });
 
-// Product card selection highlight
+// Connection method hint per product type
+const CONN_INFO = {
+  cisco_cucm:       { method: 'api',  icon: 'bi-globe',       colour: '#1e40af', bg: '#dbeafe',
+                      label: 'REST API',
+                      hint:  'Uses Cisco UC Cert Mgmt REST API (port 8443). Provide Management IP, Username, Password and Mgmt Port.' },
+  cisco_expressway: { method: 'api',  icon: 'bi-globe',       colour: '#1e40af', bg: '#dbeafe',
+                      label: 'REST API',
+                      hint:  'Uses Expressway REST API (port 443). Provide Management IP, Username, Password and Mgmt Port.' },
+  audiocodes_sbc:   { method: 'api',  icon: 'bi-globe',       colour: '#1e40af', bg: '#dbeafe',
+                      label: 'REST API',
+                      hint:  'Uses AudioCodes REST API (port 443). Provide Management IP, Username, Password and Mgmt Port.' },
+  oracle_sbc:       { method: 'api',  icon: 'bi-globe',       colour: '#1e40af', bg: '#dbeafe',
+                      label: 'REST API',
+                      hint:  'Uses Oracle Acme Packet REST API (port 443). Provide Management IP, Username, Password and Mgmt Port.' },
+  ribbon_sbc:       { method: 'api',  icon: 'bi-globe',       colour: '#1e40af', bg: '#dbeafe',
+                      label: 'REST API',
+                      hint:  'Uses Ribbon SBC Edge REST API (port 443). Provide Management IP, Username, Password and Mgmt Port.' },
+  cisco_sbc:        { method: 'ssh',  icon: 'bi-terminal',    colour: '#14532d', bg: '#dcfce7',
+                      label: 'SSH',
+                      hint:  'Uses SSH to drive IOS-XE CLI (crypto pki import). Provide Management IP, Username, Password and SSH Port (default 22).' },
+  cisco_gw:         { method: 'ssh',  icon: 'bi-terminal',    colour: '#14532d', bg: '#dcfce7',
+                      label: 'SSH',
+                      hint:  'Uses SSH to drive IOS CLI (crypto pki import). Provide Management IP, Username, Password and SSH Port (default 22).' },
+  anynode_sbc:      { method: 'ssh',  icon: 'bi-terminal',    colour: '#14532d', bg: '#dcfce7',
+                      label: 'SSH',
+                      hint:  'Uses SSH + SFTP to deploy cert to /etc/anynode/certs/ and restart service. Provide Management IP, Username, Password and SSH Port (default 22).' },
+};
+
+function updateConnHint(productType) {
+  const hint = document.getElementById('connHint');
+  if (!hint) return;
+  const info = CONN_INFO[productType];
+  if (!info) {
+    hint.style.display = 'none';
+    return;
+  }
+  hint.style.display = 'flex';
+  hint.style.background = info.bg;
+  hint.style.border = '1px solid ' + info.colour + '44';
+  hint.style.color  = info.colour;
+  hint.innerHTML =
+    '<i class="bi ' + info.icon + ' flex-shrink-0" style="font-size:1rem;"></i>' +
+    '<div><strong>' + info.label + ' push</strong> — ' + info.hint + '</div>';
+}
+
+// Product card selection highlight + hint
 document.querySelectorAll('.prod-radio').forEach(r => {
   r.addEventListener('change', () => {
     document.querySelectorAll('.prod-card').forEach(c => c.style.outline = 'none');
     if (r.checked) {
       document.getElementById('pcard-' + r.value).style.outline = '2px solid var(--teal)';
+      updateConnHint(r.value);
     }
   });
-  if (r.checked) document.getElementById('pcard-' + r.value).style.outline = '2px solid var(--teal)';
+  if (r.checked) {
+    document.getElementById('pcard-' + r.value).style.outline = '2px solid var(--teal)';
+    updateConnHint(r.value);
+  }
+});
+
+// Also update hint when modal opens (in case first radio is pre-checked)
+document.getElementById('addDeviceModal').addEventListener('show.bs.modal', () => {
+  const checked = document.querySelector('.prod-radio:checked');
+  if (checked) updateConnHint(checked.value);
 });
 
 // CSR modal
