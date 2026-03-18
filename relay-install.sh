@@ -738,11 +738,17 @@ case "\$cmd" in
   check)
     hdr "=== RELAY Health Check ==="
     PORT=\$(grep -o 'bind 127.0.0.1:[0-9]*' /etc/systemd/system/relay.service 2>/dev/null | grep -o '[0-9]*$' || echo "${APP_PORT}")
-    STATUS=\$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:\${PORT}/auth/login" 2>/dev/null || echo "000")
+    STATUS="000"
+    for i in 1 2 3 4 5; do
+      STATUS=\$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:\${PORT}/auth/login" 2>/dev/null || echo "000")
+      [[ "\$STATUS" != "000" ]] && break
+      inf "Waiting for Gunicorn workers to bind (attempt \${i}/5)..."
+      sleep 2
+    done
     if [[ "\$STATUS" == "200" ]]; then
       ok "App responding — HTTP \${STATUS}"
     else
-      err "Unexpected response — HTTP \${STATUS}"
+      err "Unexpected response — HTTP \${STATUS} (app may still be starting — run 'relay check' again)"
     fi
     _svc status --no-pager -l | head -5
     ;;
