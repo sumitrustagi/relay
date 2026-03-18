@@ -260,7 +260,7 @@ def push_cube_cert_ssh(device, pem_text):
         )
 
     host      = device.ip_address or device.hostname
-    port      = device.mgmt_port  or 22
+    port      = device.ssh_port   or 22
     username  = device.username   or "admin"
     password  = device.password   or ""
     trustpoint = _CUBE_TRUSTPOINT
@@ -393,7 +393,7 @@ def push_anynode_cert_ssh(device, pem_text):
         )
 
     host     = device.ip_address or device.hostname
-    port     = device.mgmt_port  or 22
+    port     = device.ssh_port   or 22
     username = device.username   or "root"
     password = device.password   or ""
     # Use CN or hostname as the base filename
