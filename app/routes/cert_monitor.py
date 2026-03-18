@@ -624,6 +624,7 @@ def add_device():
         username     = request.form.get("username", "").strip() or None,
         transport    = request.form.get("transport", "tls"),
         mgmt_port    = int(request.form.get("mgmt_port") or 0) or None,
+        ssh_port     = int(request.form.get("ssh_port") or 0) or None,
         sip_port     = int(request.form.get("sip_port") or 0) or None,
         notify_days  = int(request.form.get("notify_days") or 30),
         added_by     = current_user.username,
