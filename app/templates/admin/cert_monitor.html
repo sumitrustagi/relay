@@ -1,0 +1,666 @@
+{% extends "base.html" %}
+{% block title %}Cert Monitor — RELAY{% endblock %}
+
+{% block extra_head %}
+<style>
+.product-card {
+  background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+  padding:1rem 1.1rem; display:flex; align-items:center; gap:.85rem;
+  transition:box-shadow .15s, transform .12s; cursor:default;
+}
+.product-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.1); transform:translateY(-1px); }
+.product-icon {
+  width:42px; height:42px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.15rem; flex-shrink:0; color:#fff;
+}
+.cert-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:1rem; }
+.cert-item {
+  background:#fff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden;
+  transition:box-shadow .15s;
+}
+.cert-item:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
+.cert-item-header {
+  padding:.7rem 1rem; display:flex; align-items:center;
+  justify-content:space-between; gap:.5rem;
+  border-bottom:1px solid #f1f5f9;
+}
+.cert-item-body { padding:.75rem 1rem; font-size:.82rem; }
+.cert-item-body .row-kv { display:flex; justify-content:space-between; padding:2px 0; }
+.cert-item-body .kv-label { color:#64748b; }
+.cert-item-body .kv-val { font-weight:500; font-family:monospace; }
+.cert-bar { height:5px; border-radius:3px; margin:.5rem 0; overflow:hidden; background:#f1f5f9; }
+.cert-bar-fill { height:100%; border-radius:3px; }
+.action-row { padding:.5rem 1rem; border-top:1px solid #f1f5f9; display:flex; gap:4px; flex-wrap:wrap; }
+.smtp-card { background:linear-gradient(135deg,#1e293b 0%,#334155 100%); border-radius:12px; color:#fff; padding:1.25rem; }
+</style>
+{% endblock %}
+
+{% block content_auth %}
+
+{# ── Page header ── #}
+<div class="page-header">
+  <div>
+    <h5><i class="bi bi-shield-check me-2" style="color:var(--teal);"></i>Certificate Monitor</h5>
+    <p class="text-muted small mb-0">SSL/TLS lifecycle management — monitor, generate CSRs, upload signed chains</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <form method="POST" action="{{ url_for('cert_monitor.send_alerts') }}" class="d-inline">
+      <button type="submit" class="btn btn-sm btn-outline-warning">
+        <i class="bi bi-bell me-1"></i>Send Alerts
+      </button>
+    </form>
+    <form method="POST" action="{{ url_for('cert_monitor.scan_all') }}" class="d-inline">
+      <button type="submit" class="btn btn-sm" style="background:var(--navy);color:#fff;">
+        <i class="bi bi-arrow-repeat me-1"></i>Scan All
+      </button>
+    </form>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addDomainModal">
+      <i class="bi bi-globe me-1"></i>Add Domain
+    </button>
+    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+      <i class="bi bi-hdd-network me-1"></i>Add Device
+    </button>
+  </div>
+</div>
+
+{# ── Summary stat cards ── #}
+{% set all_items = domains + devices %}
+{% set healthy  = all_items|selectattr("latest")|selectattr("latest.risk","eq","HEALTHY")|list|length %}
+{% set attention= all_items|selectattr("latest")|selectattr("latest.risk","in",["WARNING","ATTENTION"])|list|length %}
+{% set critical = all_items|selectattr("latest")|selectattr("latest.risk","in",["CRITICAL","EXPIRED"])|list|length %}
+{% set unscanned= all_items|rejectattr("latest")|list|length %}
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#3b82f6,#2563eb);">
+        <i class="bi bi-globe2 text-white"></i>
+      </div>
+      <div><div class="stat-val">{{ all_items|length }}</div><div class="stat-lbl">Total Items</div></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#22c55e,#16a34a);">
+        <i class="bi bi-shield-check text-white"></i>
+      </div>
+      <div><div class="stat-val">{{ healthy }}</div><div class="stat-lbl">Healthy</div></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#f59e0b,#d97706);">
+        <i class="bi bi-exclamation-triangle text-white"></i>
+      </div>
+      <div><div class="stat-val">{{ attention }}</div><div class="stat-lbl">Attention</div></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#ef4444,#dc2626);">
+        <i class="bi bi-x-shield text-white"></i>
+      </div>
+      <div><div class="stat-val">{{ critical }}</div><div class="stat-lbl">Critical / Expired</div></div>
+    </div>
+  </div>
+</div>
+
+{# ── SMTP status banner ── #}
+{% if not smtp.is_configured() or not smtp.enabled %}
+<div class="alert alert-warning d-flex align-items-center gap-3 mb-4" style="border-radius:12px;">
+  <i class="bi bi-envelope-exclamation fs-4"></i>
+  <div class="flex-grow-1">
+    <strong>Email alerts not configured.</strong>
+    {% if not smtp.is_configured() %} Set up SMTP below to receive expiry notifications.
+    {% else %} SMTP is configured but disabled. Enable it to receive alerts.{% endif %}
+  </div>
+  <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#smtpModal">
+    <i class="bi bi-gear me-1"></i>Configure
+  </button>
+</div>
+{% else %}
+<div class="alert alert-success d-flex align-items-center gap-3 mb-4" style="border-radius:12px;">
+  <i class="bi bi-envelope-check fs-4"></i>
+  <div class="flex-grow-1">
+    <strong>Alerts active</strong> — sending to {{ smtp.alert_to }} via {{ smtp.host }}:{{ smtp.port }}
+  </div>
+  <button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#smtpModal">
+    <i class="bi bi-pencil me-1"></i>Edit
+  </button>
+</div>
+{% endif %}
+
+{# ── Monitored Domains ── #}
+{% if domains %}
+<div class="card mb-4">
+  <div class="card-header navy d-flex align-items-center gap-2">
+    <i class="bi bi-globe2"></i> Domains
+    <span class="badge bg-white text-dark ms-auto">{{ domains|length }}</span>
+  </div>
+  <div class="p-3">
+    <div class="cert-grid">
+      {% for d in domains %}
+      {% set r = d.latest %}
+      {% set risk = r.risk if r else 'UNKNOWN' %}
+      {% set days = r.days_left if r else None %}
+      {% set bar_pct = [[(days or 0), 0]|max, 365]|min / 365 * 100 if days is not none else 0 %}
+      {% set bar_col = '#dc2626' if days is not none and days < 30 else '#f59e0b' if days is not none and days < 60 else '#22c55e' %}
+      <div class="cert-item">
+        <div class="cert-item-header">
+          <div>
+            <a href="https://{{ d.hostname }}" target="_blank" class="fw-semibold text-decoration-none text-dark">
+              {{ d.hostname }}
+            </a>
+            {% if d.label %}<div class="text-muted" style="font-size:.72rem;">{{ d.label }}</div>{% endif %}
+          </div>
+          <span class="badge risk-{{ risk }} py-1 px-2">{{ risk }}</span>
+        </div>
+        <div class="cert-item-body">
+          <div class="cert-bar"><div class="cert-bar-fill" style="width:{{ bar_pct }}%;background:{{ bar_col }};"></div></div>
+          <div class="row-kv"><span class="kv-label">Expires</span><span class="kv-val">{{ r.not_after if r else '—' }}</span></div>
+          <div class="row-kv"><span class="kv-label">Days left</span>
+            <span class="kv-val fw-bold" style="color:{{ bar_col }};">{{ days if days is not none else '—' }}</span>
+          </div>
+          <div class="row-kv"><span class="kv-label">Issuer</span><span class="kv-val" style="font-size:.7rem;">{{ r.issuer_org if r else '—' }}</span></div>
+          <div class="row-kv"><span class="kv-label">Port</span><span class="kv-val">{{ d.port }}</span></div>
+          {% if d.csr_pem %}
+          <div class="row-kv"><span class="kv-label">CSR</span>
+            <span class="badge" style="background:#fef3c7;color:#92400e;font-size:.65rem;">Generated {{ d.csr_generated_at.strftime('%Y-%m-%d') if d.csr_generated_at else '' }}</span>
+          </div>
+          {% endif %}
+          {% if d.cert_chain_pem %}
+          <div class="row-kv"><span class="kv-label">Chain</span>
+            <span class="badge" style="background:#dbeafe;color:#1e40af;font-size:.65rem;">Uploaded {{ d.cert_uploaded_at.strftime('%Y-%m-%d') if d.cert_uploaded_at else '' }}</span>
+          </div>
+          {% endif %}
+        </div>
+        <div class="action-row">
+          <button class="btn btn-xs btn-outline-primary" onclick="scanDomain({{ d.id }},'{{ d.hostname }}')" id="dscan-{{ d.id }}" title="Scan TLS">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>
+          <button class="btn btn-xs btn-outline-warning" onclick="openCsrModal('domain',{{ d.id }},'{{ d.hostname }}','{{ d.csr_cn or d.hostname }}','{{ d.csr_org or '' }}','{{ d.csr_ou or '' }}','{{ d.csr_country or '' }}','{{ d.csr_state or '' }}','{{ d.csr_locality or '' }}','{{ d.csr_sans or '' }}')" title="Generate CSR">
+            <i class="bi bi-file-earmark-code"></i> CSR
+          </button>
+          {% if d.csr_pem %}
+          <a class="btn btn-xs btn-outline-secondary" href="{{ url_for('cert_monitor.download_csr', did=d.id) }}" title="Download CSR"><i class="bi bi-download"></i> .csr</a>
+          <a class="btn btn-xs btn-outline-secondary" href="{{ url_for('cert_monitor.download_key', did=d.id) }}" title="Download Key"><i class="bi bi-key"></i> .key</a>
+          {% endif %}
+          <button class="btn btn-xs btn-outline-success" onclick="openUploadModal('domain',{{ d.id }},'{{ d.hostname }}')" title="Upload signed certificate chain">
+            <i class="bi bi-upload"></i> Chain
+          </button>
+          {% if d.cert_chain_pem %}
+          <a class="btn btn-xs btn-outline-info" href="{{ url_for('cert_monitor.download_chain', did=d.id) }}" title="Download stored chain"><i class="bi bi-file-earmark-check"></i></a>
+          {% endif %}
+          <form method="POST" action="{{ url_for('cert_monitor.delete_domain', did=d.id) }}" class="d-inline"
+                onsubmit="return confirm('Remove {{ d.hostname }}?')">
+            <button class="btn btn-xs btn-outline-danger" title="Remove"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Managed Devices ── #}
+{% if devices %}
+<div class="card mb-4">
+  <div class="card-header navy d-flex align-items-center gap-2">
+    <i class="bi bi-hdd-network"></i> Managed Devices
+    <span class="badge bg-white text-dark ms-auto">{{ devices|length }}</span>
+  </div>
+  <div class="p-3">
+    <div class="cert-grid">
+      {% for d in devices %}
+      {% set r = d.latest %}
+      {% set risk = r.risk if r else 'UNKNOWN' %}
+      {% set days = r.days_left if r else None %}
+      {% set bar_pct = [[(days or 0), 0]|max, 365]|min / 365 * 100 if days is not none else 0 %}
+      {% set bar_col = '#dc2626' if days is not none and days < 30 else '#f59e0b' if days is not none and days < 60 else '#22c55e' %}
+      <div class="cert-item">
+        <div class="cert-item-header">
+          <div class="d-flex align-items-center gap-2">
+            <div class="product-icon" style="background:{{ d.product_colour }};width:32px;height:32px;border-radius:8px;font-size:.85rem;flex-shrink:0;">
+              <i class="bi bi-hdd-network"></i>
+            </div>
+            <div>
+              <div class="fw-semibold" style="font-size:.88rem;">{{ d.label or d.hostname }}</div>
+              <div class="text-muted" style="font-size:.7rem;">{{ d.product_label }}</div>
+            </div>
+          </div>
+          <span class="badge risk-{{ risk }} py-1 px-2">{{ risk }}</span>
+        </div>
+        <div class="cert-item-body">
+          <div class="cert-bar"><div class="cert-bar-fill" style="width:{{ bar_pct }}%;background:{{ bar_col }};"></div></div>
+          <div class="row-kv"><span class="kv-label">Host</span><span class="kv-val">{{ d.hostname }}</span></div>
+          <div class="row-kv"><span class="kv-label">Port</span><span class="kv-val">{{ d.port }}</span></div>
+          <div class="row-kv"><span class="kv-label">Expires</span><span class="kv-val">{{ r.not_after if r else '—' }}</span></div>
+          <div class="row-kv"><span class="kv-label">Days left</span>
+            <span class="kv-val fw-bold" style="color:{{ bar_col }};">{{ days if days is not none else '—' }}</span>
+          </div>
+          {% if d.ip_address %}
+          <div class="row-kv"><span class="kv-label">Mgmt IP</span><span class="kv-val">{{ d.ip_address }}</span></div>
+          {% endif %}
+          {% if d.username %}
+          <div class="row-kv"><span class="kv-label">User</span><span class="kv-val">{{ d.username }}</span></div>
+          {% endif %}
+          {% if d.csr_pem %}
+          <div class="row-kv"><span class="kv-label">CSR</span>
+            <span class="badge" style="background:#fef3c7;color:#92400e;font-size:.65rem;">Generated {{ d.csr_generated_at.strftime('%Y-%m-%d') if d.csr_generated_at else '' }}</span>
+          </div>
+          {% endif %}
+        </div>
+        <div class="action-row">
+          <button class="btn btn-xs btn-outline-primary" onclick="scanDevice({{ d.id }},'{{ d.hostname }}')" id="devscan-{{ d.id }}" title="Scan TLS">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>
+          <button class="btn btn-xs btn-outline-warning" onclick="openCsrModal('device',{{ d.id }},'{{ d.hostname }}','{{ d.csr_cn or d.hostname }}','{{ d.csr_org or '' }}','{{ d.csr_ou or '' }}','{{ d.csr_country or '' }}','{{ d.csr_state or '' }}','{{ d.csr_locality or '' }}','{{ d.csr_sans or '' }}')" title="Generate CSR">
+            <i class="bi bi-file-earmark-code"></i> CSR
+          </button>
+          {% if d.csr_pem %}
+          <a class="btn btn-xs btn-outline-secondary" href="{{ url_for('cert_monitor.download_device_csr', did=d.id) }}" title="Download CSR"><i class="bi bi-download"></i> .csr</a>
+          <a class="btn btn-xs btn-outline-secondary" href="{{ url_for('cert_monitor.download_device_key', did=d.id) }}" title="Download Key"><i class="bi bi-key"></i> .key</a>
+          {% endif %}
+          <button class="btn btn-xs btn-outline-success" onclick="openUploadModal('device',{{ d.id }},'{{ d.hostname }}')" title="Upload signed certificate chain">
+            <i class="bi bi-upload"></i> Chain
+          </button>
+          {% if d.cert_chain_pem %}
+          <a class="btn btn-xs btn-outline-info" href="{{ url_for('cert_monitor.download_device_chain', did=d.id) }}"><i class="bi bi-file-earmark-check"></i></a>
+          {% endif %}
+          <form method="POST" action="{{ url_for('cert_monitor.delete_device', did=d.id) }}" class="d-inline"
+                onsubmit="return confirm('Remove {{ d.hostname }}?')">
+            <button class="btn btn-xs btn-outline-danger"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if not domains and not devices %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-shield-x" style="font-size:3rem;opacity:.3;display:block;margin-bottom:1rem;"></i>
+    <h6>No items monitored yet</h6>
+    <p class="small">Add a domain or a managed device to start tracking SSL/TLS certificates.</p>
+    <div class="d-flex gap-2 justify-content-center">
+      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addDomainModal">
+        <i class="bi bi-globe me-1"></i>Add Domain
+      </button>
+      <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
+        <i class="bi bi-hdd-network me-1"></i>Add Device
+      </button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ════════════════════════════════════ MODALS ════════════════════════════════════ #}
+
+{# Add Domain #}
+<div class="modal fade" id="addDomainModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header navy"><h6 class="modal-title"><i class="bi bi-globe me-2"></i>Add Domain</h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <form method="POST" action="{{ url_for('cert_monitor.add_domain') }}">
+      <div class="modal-body row g-3">
+        <div class="col-md-8">
+          <label class="form-label fw-semibold small">Hostname <span class="text-danger">*</span></label>
+          <input type="text" name="hostname" class="form-control form-control-sm font-monospace" placeholder="relay.example.com" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold small">Port</label>
+          <input type="number" name="port" class="form-control form-control-sm" value="443">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label fw-semibold small">Label</label>
+          <input type="text" name="label" class="form-control form-control-sm" placeholder="e.g. Production API">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold small">Alert days</label>
+          <input type="number" name="notify_days" class="form-control form-control-sm" value="30">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-plus me-1"></i>Add Domain</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# Add Device #}
+<div class="modal fade" id="addDeviceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header navy"><h6 class="modal-title"><i class="bi bi-hdd-network me-2"></i>Add Managed Device</h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <form method="POST" action="{{ url_for('cert_monitor.add_device') }}">
+      <div class="modal-body">
+        {# Product type picker #}
+        <label class="form-label fw-semibold small">Product Type <span class="text-danger">*</span></label>
+        <div class="row g-2 mb-3" id="productGrid">
+          {% for key, label, icon, colour in product_list %}
+          <div class="col-6 col-md-3">
+            <label class="d-block" style="cursor:pointer;">
+              <input type="radio" name="product_type" value="{{ key }}" class="d-none prod-radio"
+                     {% if loop.first %}checked{% endif %}>
+              <div class="product-card prod-card" id="pcard-{{ key }}">
+                <div class="product-icon" style="background:{{ colour }};">
+                  <i class="bi bi-hdd-network"></i>
+                </div>
+                <div style="font-size:.78rem;font-weight:600;line-height:1.3;">{{ label }}</div>
+              </div>
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Hostname / FQDN <span class="text-danger">*</span></label>
+            <input type="text" name="hostname" class="form-control form-control-sm font-monospace" placeholder="sbc.example.com" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">TLS Port</label>
+            <input type="number" name="port" class="form-control form-control-sm" value="443">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">Alert days</label>
+            <input type="number" name="notify_days" class="form-control form-control-sm" value="30">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Label</label>
+            <input type="text" name="label" class="form-control form-control-sm" placeholder="e.g. Amsterdam SBC">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Management IP (optional)</label>
+            <input type="text" name="ip_address" class="form-control form-control-sm font-monospace" placeholder="10.0.0.1">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Username</label>
+            <input type="text" name="username" class="form-control form-control-sm" placeholder="admin">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Password</label>
+            <input type="password" name="password" class="form-control form-control-sm" placeholder="••••••••">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Transport</label>
+            <select name="transport" class="form-select form-select-sm">
+              <option value="tls" selected>TLS</option>
+              <option value="tcp">TCP</option>
+              <option value="udp">UDP</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">SIP Port (optional)</label>
+            <input type="number" name="sip_port" class="form-control form-control-sm" placeholder="5061">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Mgmt Port (optional)</label>
+            <input type="number" name="mgmt_port" class="form-control form-control-sm" placeholder="8443">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-plus me-1"></i>Add Device</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# CSR Modal (shared domain + device) #}
+<div class="modal fade" id="csrModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header" style="background:linear-gradient(135deg,#92400e,#d97706);color:#fff;">
+      <h6 class="modal-title"><i class="bi bi-file-earmark-code me-2"></i>Generate CSR — <span id="csr-name"></span></h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <form method="POST" id="csrForm">
+      <div class="modal-body row g-2">
+        <p class="text-muted small mb-1">Subject fields for the Certificate Signing Request. CN is required; all others are recommended for production certificates.</p>
+        <div class="col-md-8">
+          <label class="form-label fw-semibold small">Common Name (CN) <span class="text-danger">*</span></label>
+          <input type="text" name="csr_cn" id="csr_cn" class="form-control form-control-sm font-monospace" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold small">Country (2-letter)</label>
+          <input type="text" name="csr_country" id="csr_country" class="form-control form-control-sm" placeholder="US" maxlength="2">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Organisation</label>
+          <input type="text" name="csr_org" id="csr_org" class="form-control form-control-sm" placeholder="Acme Corp">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Org Unit (OU)</label>
+          <input type="text" name="csr_ou" id="csr_ou" class="form-control form-control-sm" placeholder="IT / Networking">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">State / Province</label>
+          <input type="text" name="csr_state" id="csr_state" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Locality / City</label>
+          <input type="text" name="csr_locality" id="csr_locality" class="form-control form-control-sm">
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold small">Subject Alternative Names (SANs)</label>
+          <input type="text" name="csr_sans" id="csr_sans" class="form-control form-control-sm font-monospace" placeholder="www.example.com, api.example.com">
+          <div class="form-text small">Comma-separated DNS names. CN is always included.</div>
+        </div>
+        <div class="col-12">
+          <div class="alert alert-warning py-2 small mb-0">
+            <i class="bi bi-exclamation-triangle me-1"></i> Regenerating replaces the existing CSR and private key. Download the current key first if needed.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm fw-semibold" style="background:#d97706;color:#fff;">
+          <i class="bi bi-cpu me-1"></i>Generate CSR &amp; Key
+        </button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# Upload Cert Chain Modal (shared) #}
+<div class="modal fade" id="uploadModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header" style="background:linear-gradient(135deg,#15803d,#22c55e);color:#fff;">
+      <h6 class="modal-title"><i class="bi bi-upload me-2"></i>Upload Certificate Chain — <span id="upload-name"></span></h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <form method="POST" id="uploadForm" enctype="multipart/form-data">
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Upload the signed certificate chain from your CA (PEM format). Include the server certificate and all intermediate CA certificates in order.</p>
+        <ul class="nav nav-tabs mb-3" id="uploadTabs">
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-file-u"><i class="bi bi-file-earmark-arrow-up me-1"></i>Upload File</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-paste-u"><i class="bi bi-clipboard me-1"></i>Paste PEM</button></li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="tab-file-u">
+            <input type="file" name="cert_chain_file" class="form-control form-control-sm" accept=".pem,.crt,.cer,.cert">
+          </div>
+          <div class="tab-pane fade" id="tab-paste-u">
+            <textarea name="cert_chain_pem" id="cert_chain_pem_ta"
+              class="form-control form-control-sm font-monospace"
+              rows="12"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              style="white-space:pre;overflow-wrap:normal;overflow-x:auto;resize:vertical;"
+              placeholder="-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIUExample...
+-----END CERTIFICATE-----
+
+(Paste full chain — server cert first, then intermediates)"></textarea>
+            <div class="form-text small mt-1">
+              <i class="bi bi-info-circle me-1"></i>
+              Accepted formats: <code>.pem</code>, <code>.crt</code>, <code>.cer</code>,
+              <code>X.509</code>, <code>PKCS#7 (.p7b)</code>.
+              Paste the complete chain including <strong>-----BEGIN CERTIFICATE-----</strong> headers.
+            </div>
+          </div>
+        </div>
+        <div class="alert alert-info py-2 mt-3 small mb-0">
+          <i class="bi bi-info-circle me-1"></i> The certificate is stored for reference. Deploy it manually to the device/server, then run a scan to verify.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#22c55e;color:#fff;"><i class="bi bi-upload me-1"></i>Upload</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# SMTP Config Modal #}
+<div class="modal fade" id="smtpModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header" style="background:linear-gradient(135deg,#1e293b,#334155);color:#fff;">
+      <h6 class="modal-title"><i class="bi bi-envelope-at me-2"></i>SMTP Alert Configuration</h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <form method="POST" action="{{ url_for('admin.save_smtp_config') }}">
+      <div class="modal-body row g-2">
+        <div class="col-12 d-flex align-items-center gap-2 mb-1">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" name="smtp_enabled" id="smtp_enabled"
+                   {{ 'checked' if smtp.enabled }}>
+            <label class="form-check-label fw-semibold" for="smtp_enabled">Enable alert emails</label>
+          </div>
+        </div>
+        <div class="col-md-8">
+          <label class="form-label fw-semibold small">SMTP Host</label>
+          <input type="text" name="smtp_host" class="form-control form-control-sm font-monospace"
+                 value="{{ smtp.host }}" placeholder="smtp.office365.com">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold small">Port</label>
+          <input type="number" name="smtp_port" class="form-control form-control-sm" value="{{ smtp.port or 587 }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Username</label>
+          <input type="text" name="smtp_user" class="form-control form-control-sm" value="{{ smtp.username }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Password</label>
+          <input type="password" name="smtp_pass" class="form-control form-control-sm"
+                 placeholder="{{ '••••••••' if smtp.password else 'Enter password' }}">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label fw-semibold small">From Address</label>
+          <input type="email" name="smtp_from" class="form-control form-control-sm" value="{{ smtp.from_addr }}" placeholder="relay@company.com">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold small">From Name</label>
+          <input type="text" name="smtp_from_name" class="form-control form-control-sm" value="{{ smtp.from_name }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold small">Alert Recipients (comma-separated)</label>
+          <input type="text" name="smtp_alert_to" class="form-control form-control-sm"
+                 value="{{ smtp.alert_to }}" placeholder="noc@company.com, admin@company.com">
+        </div>
+        <div class="col-md-6">
+          <div class="form-check form-switch mt-1">
+            <input class="form-check-input" type="checkbox" name="smtp_tls" id="smtp_tls" {{ 'checked' if smtp.use_tls }}>
+            <label class="form-check-label small" for="smtp_tls">Use STARTTLS</label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="form-check form-switch mt-1">
+            <input class="form-check-input" type="checkbox" name="smtp_ssl" id="smtp_ssl" {{ 'checked' if smtp.use_ssl }}>
+            <label class="form-check-label small" for="smtp_ssl">Use SSL/TLS (port 465)</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <form method="POST" action="{{ url_for('admin.test_smtp') }}" class="d-inline m-0">
+          <button type="submit" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-send me-1"></i>Send Test Email
+          </button>
+        </form>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-save me-1"></i>Save</button>
+        </div>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Focus textarea when paste tab is activated
+document.querySelectorAll('[data-bs-target="#tab-paste-u"]').forEach(function(tab) {
+  tab.addEventListener('shown.bs.tab', function() {
+    var ta = document.getElementById('cert_chain_pem_ta');
+    if (ta) { ta.focus(); }
+  });
+});
+
+// Product card selection highlight
+document.querySelectorAll('.prod-radio').forEach(r => {
+  r.addEventListener('change', () => {
+    document.querySelectorAll('.prod-card').forEach(c => c.style.outline = 'none');
+    if (r.checked) {
+      document.getElementById('pcard-' + r.value).style.outline = '2px solid var(--teal)';
+    }
+  });
+  if (r.checked) document.getElementById('pcard-' + r.value).style.outline = '2px solid var(--teal)';
+});
+
+// CSR modal
+function openCsrModal(kind, did, hostname, cn, org, ou, country, state, locality, sans) {
+  document.getElementById('csr-name').textContent = hostname;
+  const base = kind === 'device' ? '/admin/certs/device/' : '/admin/certs/';
+  document.getElementById('csrForm').action = base + did + '/generate-csr';
+  document.getElementById('csr_cn').value       = cn       || hostname;
+  document.getElementById('csr_org').value      = org      || '';
+  document.getElementById('csr_ou').value       = ou       || '';
+  document.getElementById('csr_country').value  = country  || '';
+  document.getElementById('csr_state').value    = state    || '';
+  document.getElementById('csr_locality').value = locality || '';
+  document.getElementById('csr_sans').value     = sans     || '';
+  new bootstrap.Modal(document.getElementById('csrModal')).show();
+}
+
+// Upload modal
+function openUploadModal(kind, did, hostname) {
+  document.getElementById('upload-name').textContent = hostname;
+  const base = kind === 'device' ? '/admin/certs/device/' : '/admin/certs/';
+  document.getElementById('uploadForm').action = base + did + '/upload-cert';
+  const fileTab = document.querySelector('[data-bs-target="#tab-file-u"]');
+  bootstrap.Tab.getOrCreateInstance(fileTab).show();
+  new bootstrap.Modal(document.getElementById('uploadModal')).show();
+}
+
+// Scan domain
+function scanDomain(did, hostname) {
+  const btn = document.getElementById('dscan-' + did);
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  fetch('/admin/certs/' + did + '/scan')
+    .then(r => r.json())
+    .then(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>'; location.reload(); })
+    .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>'; alert('Scan failed'); });
+}
+
+// Scan device
+function scanDevice(did, hostname) {
+  const btn = document.getElementById('devscan-' + did);
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  fetch('/admin/certs/device/' + did + '/scan')
+    .then(r => r.json())
+    .then(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>'; location.reload(); })
+    .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>'; alert('Scan failed'); });
+}
+</script>
+{% endblock %}

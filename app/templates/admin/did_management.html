@@ -1,0 +1,536 @@
+{% extends "base.html" %}
+{% block title %}DID Management — RELAY{% endblock %}
+{% block extra_head %}
+<style>
+.geo-tree { font-size:.88rem; }
+.country-header {
+  background:linear-gradient(135deg,var(--navy) 0%,var(--navy-light) 100%);
+  color:#fff; padding:.7rem 1rem; border-radius:10px 10px 0 0;
+  display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+}
+.region-header {
+  background:#f8fafc; padding:.55rem 1rem;
+  border-bottom:0.5px solid var(--color-border-tertiary);
+  display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+  font-weight:500; font-size:.83rem; color:var(--color-text-primary);
+}
+.region-header:hover { background:#f1f5f9; }
+.block-row td { font-size:.82rem; padding:.45rem .85rem !important; }
+.scope-badge {
+  font-size:.7rem; padding:2px 8px; border-radius:10px;
+  background:#e0f2fe; color:#0369a1; font-weight:600;
+}
+</style>
+{% endblock %}
+{% block content_auth %}
+
+<div class="page-header">
+  <div>
+    <h5><i class="bi bi-grid-3x3 me-2 text-primary"></i>DID Management</h5>
+    <p class="text-muted small mb-0">Geographic number inventory — Country → State/Region → DID Blocks</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <form method="POST" action="{{ url_for('admin.import_locations') }}" class="d-inline">
+      <button type="submit" class="btn btn-sm btn-outline-secondary" title="Import countries and regions from platform location data">
+        <i class="bi bi-geo-alt me-1"></i>Import Locations
+      </button>
+    </form>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addCountryModal">
+      <i class="bi bi-plus-circle me-1"></i>Add Country
+    </button>
+  </div>
+</div>
+
+{# ── Inventory Sync Panel ── #}
+<div class="card mb-4">
+  <div class="card-header navy d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-database me-2"></i>Cross-Platform Number Inventory</span>
+    <form method="POST" action="{{ url_for('admin.sync_inventory') }}" class="d-inline">
+      <button type="submit" class="btn btn-sm btn-light py-0">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync All
+      </button>
+    </form>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Platform</th><th>Numbers cached</th><th>Last sync</th><th>Status</th><th class="text-end">Action</th></tr>
+      </thead>
+      <tbody>
+        {% for plat, label, enabled in [('teams','Microsoft Teams',has_teams),('webex','Webex Calling',has_webex),('cucm','Cisco CUCM',has_cucm)] %}
+        {% if enabled %}
+        {% set log = sync_logs.get(plat) %}
+        {% set cnt = inv_counts.get(plat, 0) %}
+        <tr>
+          <td>
+            {% if plat=='teams' %}<span class="badge" style="background:#6264A7;">Teams</span>
+            {% elif plat=='webex' %}<span class="badge" style="background:#00BCEB;color:#000;">Webex</span>
+            {% else %}<span class="badge" style="background:#049fd9;">CUCM</span>{% endif %}
+            <span class="ms-1 small">{{ label }}</span>
+          </td>
+          <td class="fw-semibold">{{ cnt }}</td>
+          <td class="small text-muted font-monospace">{{ log.finished_at.strftime('%Y-%m-%d %H:%M') if log and log.finished_at else 'Never' }}</td>
+          <td>
+            {% if not log %}<span class="badge bg-secondary">Not synced</span>
+            {% elif log.status=='ok' %}<span class="badge bg-success">OK</span>
+            {% elif log.status=='running' %}<span class="badge bg-warning text-dark">Running</span>
+            {% else %}<span class="badge bg-danger" title="{{ log.error }}">Error</span>{% endif %}
+          </td>
+          <td class="text-end">
+            <form method="POST" action="{{ url_for('admin.sync_inventory_platform', platform=plat) }}" class="d-inline">
+              <button type="submit" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:1px 8px;">
+                <i class="bi bi-arrow-repeat"></i> Sync
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer py-1 small text-muted">
+    <i class="bi bi-info-circle me-1"></i>
+    Sync pulls live assignments from each platform. Block scans use this cache.
+    A number is <strong>available</strong> only if unassigned on <em>every</em> synced platform.
+  </div>
+</div>
+
+{# ── Geographic Tree ── #}
+{% if not countries %}
+<div class="card">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-globe2" style="font-size:2.5rem;opacity:.3;display:block;margin-bottom:1rem;"></i>
+    <h6>No countries configured yet</h6>
+    <p class="small">Click <strong>Import Locations</strong> to pull from your platforms, or <strong>Add Country</strong> manually.</p>
+  </div>
+</div>
+{% endif %}
+
+{% for country in countries %}
+<div class="card mb-4 geo-tree">
+
+  {# Country header #}
+  <div class="country-header">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-globe2"></i>
+      <span class="fw-bold fs-6">{{ country.name }}</span>
+      {% if country.iso_code %}
+        <span class="badge bg-light text-dark" style="font-size:.7rem;">{{ country.iso_code }}</span>
+      {% endif %}
+      <span class="badge bg-white text-dark" style="font-size:.7rem;">{{ country.regions|length }} region(s)</span>
+    </div>
+    <div class="d-flex gap-1">
+      <button class="btn btn-xs btn-light py-0"
+              onclick="openAddBlock({{ country.id }}, null, '{{ country.name }}')"
+              title="Add DID block at country level">
+        <i class="bi bi-plus"></i> Block (country)
+      </button>
+      <button class="btn btn-xs btn-light py-0"
+              onclick="openAddRegion({{ country.id }}, '{{ country.name }}')"
+              title="Add state/province/region">
+        <i class="bi bi-diagram-2"></i> Region
+      </button>
+      <form method="POST" action="{{ url_for('admin.delete_country', cid=country.id) }}" class="d-inline"
+            onsubmit="return confirm('Delete {{ country.name }} and ALL its regions and DID blocks?')">
+        <button type="submit" class="btn btn-xs btn-outline-light py-0"><i class="bi bi-trash"></i></button>
+      </form>
+    </div>
+  </div>
+
+  {# Country-level blocks (no region) #}
+  {% set country_blocks = country.blocks %}
+  {% if country_blocks %}
+  <div style="padding:.5rem .75rem; background:#f8fafc; border-bottom:0.5px solid var(--color-border-tertiary);">
+    <span class="text-muted small"><i class="bi bi-collection me-1"></i>Country-level blocks (no specific region)</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0">
+      <thead class="table-light">
+        <tr><th>Label</th><th>Start</th><th>End</th><th>Range</th><th>Type</th><th>Notes</th><th class="text-end">Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for b in country_blocks %}
+        <tr class="block-row">
+          <td class="fw-semibold">{{ b.label or '—' }}</td>
+          <td class="font-monospace">{{ b.start_number }}</td>
+          <td class="font-monospace">{{ b.end_number }}</td>
+          <td class="text-muted">{{ b.range_size or '—' }}</td>
+          <td><span class="badge bg-light text-dark border" style="font-size:.68rem;">{{ b.number_type }}</span></td>
+          <td class="text-muted small">{{ b.notes or '—' }}</td>
+          <td class="text-end" style="white-space:nowrap;">
+            <button class="btn btn-xs btn-outline-info" style="font-size:.72rem;padding:1px 6px;"
+                    onclick="scanBlock({{ b.id }}, '{{ b.start_number }}', '{{ b.end_number }}')" id="scan-{{ b.id }}">
+              <i class="bi bi-diagram-2"></i> Scan
+            </button>
+            <a href="{{ url_for('admin.export_all_dids', bid=b.id) }}" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:1px 6px;" title="Export all numbers">
+              <i class="bi bi-download"></i> All
+            </a>
+            <a href="{{ url_for('admin.export_free_dids', bid=b.id) }}" class="btn btn-xs btn-outline-success" style="font-size:.72rem;padding:1px 6px;" title="Export available only">
+              <i class="bi bi-download"></i> Free
+            </a>
+            <form method="POST" action="{{ url_for('admin.delete_did_block', bid=b.id) }}" class="d-inline"
+                  onsubmit="return confirm('Delete block {{ b.start_number }}–{{ b.end_number }}?')">
+              <button class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:1px 6px;"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# Regions #}
+  {% for region in country.regions %}
+  <div class="region-header">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-geo-alt text-muted"></i>
+      <span>{{ region.name }}</span>
+      {% if region.notes %}<span class="text-muted small">— {{ region.notes }}</span>{% endif %}
+      <span class="badge bg-light text-dark border" style="font-size:.68rem;">{{ region.blocks|length }} block(s)</span>
+    </div>
+    <div class="d-flex gap-1">
+      <button class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:1px 7px;"
+              onclick="openAddBlock({{ country.id }}, {{ region.id }}, '{{ region.name }}, {{ country.name }}')">
+        <i class="bi bi-plus"></i> Block
+      </button>
+      <form method="POST" action="{{ url_for('admin.delete_region', rid=region.id) }}" class="d-inline"
+            onsubmit="return confirm('Delete region {{ region.name }} and its DID blocks?')">
+        <button type="submit" class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:1px 6px;"><i class="bi bi-trash"></i></button>
+      </form>
+    </div>
+  </div>
+
+  {% if region.blocks %}
+  <div class="table-responsive" style="padding-left:1.75rem;">
+    <table class="table table-hover table-sm mb-0">
+      <thead class="table-light">
+        <tr><th>Label</th><th>Start</th><th>End</th><th>Range</th><th>Type</th><th>Notes</th><th class="text-end">Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for b in region.blocks %}
+        <tr class="block-row">
+          <td class="fw-semibold">{{ b.label or '—' }}</td>
+          <td class="font-monospace">{{ b.start_number }}</td>
+          <td class="font-monospace">{{ b.end_number }}</td>
+          <td class="text-muted">{{ b.range_size or '—' }}</td>
+          <td><span class="badge bg-light text-dark border" style="font-size:.68rem;">{{ b.number_type }}</span></td>
+          <td class="text-muted small">{{ b.notes or '—' }}</td>
+          <td class="text-end" style="white-space:nowrap;">
+            <button class="btn btn-xs btn-outline-info" style="font-size:.72rem;padding:1px 6px;"
+                    onclick="scanBlock({{ b.id }}, '{{ b.start_number }}', '{{ b.end_number }}')" id="scan-{{ b.id }}">
+              <i class="bi bi-diagram-2"></i> Scan
+            </button>
+            <a href="{{ url_for('admin.export_all_dids', bid=b.id) }}" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:1px 6px;" title="Export all numbers with assignment details">
+              <i class="bi bi-download"></i> All
+            </a>
+            <a href="{{ url_for('admin.export_free_dids', bid=b.id) }}" class="btn btn-xs btn-outline-success" style="font-size:.72rem;padding:1px 6px;" title="Export available numbers only">
+              <i class="bi bi-download"></i> Free
+            </a>
+            <form method="POST" action="{{ url_for('admin.delete_did_block', bid=b.id) }}" class="d-inline"
+                  onsubmit="return confirm('Delete block {{ b.start_number }}–{{ b.end_number }}?')">
+              <button class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:1px 6px;"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-muted small py-2 ps-5">
+    No DID blocks for this region.
+    <button class="btn btn-link btn-sm p-0 ms-1" style="font-size:.8rem;"
+            onclick="openAddBlock({{ country.id }}, {{ region.id }}, '{{ region.name }}')">Add one</button>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  {% if not country.regions and not country_blocks %}
+  <div class="text-muted small text-center py-3">
+    No regions or blocks defined. Add a region or a country-level block.
+  </div>
+  {% endif %}
+
+</div>
+{% endfor %}
+
+{# ════════ MODALS ════════ #}
+
+{# Add Country #}
+<div class="modal fade" id="addCountryModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header navy"><h6 class="modal-title"><i class="bi bi-globe2 me-2"></i>Add Country</h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <form method="POST" action="{{ url_for('admin.add_country') }}">
+      <div class="modal-body row g-3">
+        <div class="col-md-8">
+          <label class="form-label fw-semibold small">Country Name <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control form-control-sm" placeholder="Belgium" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold small">ISO Code</label>
+          <input type="text" name="iso_code" class="form-control form-control-sm" placeholder="BE" maxlength="2">
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold small">Notes</label>
+          <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-plus me-1"></i>Add Country</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# Add Region (dynamically targeted by JS) #}
+<div class="modal fade" id="addRegionModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header navy"><h6 class="modal-title"><i class="bi bi-geo-alt me-2"></i>Add Region — <span id="regionCountryName"></span></h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <form method="POST" id="addRegionForm">
+      <div class="modal-body row g-3">
+        <div class="col-12">
+          <label class="form-label fw-semibold small">State / Province / Region <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control form-control-sm" placeholder="Wallonia" required>
+          <div class="form-text small">Can be a state, province, metropolitan area, or any logical sub-grouping.</div>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold small">Notes</label>
+          <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-plus me-1"></i>Add Region</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# Add DID Block (dynamically targeted) #}
+<div class="modal fade" id="addBlockModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header navy">
+      <h6 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add DID Block — <span id="blockScopeLabel"></span></h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <form method="POST" action="{{ url_for('admin.add_did_block') }}" id="addBlockForm">
+      <input type="hidden" name="country_id" id="blockCountryId">
+      <input type="hidden" name="region_id"  id="blockRegionId">
+      <div class="modal-body row g-3">
+        <div class="col-12">
+          <div class="alert alert-info py-2 small mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            <strong>Scope:</strong> <span id="blockScopeInfo"></span>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Label</label>
+          <input type="text" name="label" class="form-control form-control-sm" placeholder="e.g. Brussels Main Range">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Number Type</label>
+          <select name="number_type" class="form-select form-select-sm">
+            <option value="mixed">Mixed / Multiple platforms</option>
+            {% if has_teams %}
+            <option value="directRouting">Teams — Direct Routing</option>
+            <option value="callingPlan">Teams — Calling Plan</option>
+            <option value="operatorConnect">Teams — Operator Connect</option>
+            {% endif %}
+            {% if has_webex %}
+            <option value="webex">Webex Calling</option>
+            {% endif %}
+            {% if has_cucm %}
+            <option value="cucm">Cisco CUCM</option>
+            {% endif %}
+            <option value="unassigned">Unassigned / Reserved</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">Start Number <span class="text-danger">*</span></label>
+          <input type="text" name="start_number" class="form-control form-control-sm font-monospace"
+                 placeholder="+3227780000 or 1001" required>
+          <div class="form-text small">E.164 (+32...) or bare extension (1001)</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold small">End Number <span class="text-danger">*</span></label>
+          <input type="text" name="end_number" class="form-control form-control-sm font-monospace"
+                 placeholder="+3227789999 or 5000" required>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold small">Notes</label>
+          <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-plus me-1"></i>Add Block</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# Scan Detail Modal #}
+<div class="modal fade" id="scanDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header navy">
+      <h6 class="modal-title" id="scanDetailTitle"><i class="bi bi-diagram-2 me-2"></i>Block Scan Results</h6>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body" id="scanDetailBody">
+      <div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="text-muted small mt-2">Scanning all platforms…</p></div>
+    </div>
+    <div class="modal-footer justify-content-between">
+      <div class="d-flex gap-2 align-items-center">
+        <a id="scanExportAllBtn"  href="#" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download me-1"></i>Export All</a>
+        <a id="scanExportFreeBtn" href="#" class="btn btn-sm btn-outline-success"><i class="bi bi-download me-1"></i>Export Available</a>
+        <span class="text-muted small ms-2">
+          <i class="bi bi-info-circle me-1"></i>
+          If assigned-to shows a short ID, run <strong>Sync All</strong> to resolve display names.
+        </span>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+    </div>
+  </div></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PLAT_COLOURS = {teams:"#6264A7", webex:"#00BCEB", cucm:"#049fd9"};
+const PLAT_TEXT    = {teams:"#fff",    webex:"#000",    cucm:"#fff"};
+
+function openAddRegion(cid, cname) {
+  document.getElementById("regionCountryName").textContent = cname;
+  document.getElementById("addRegionForm").action = "/admin/did/country/" + cid + "/region/add";
+  new bootstrap.Modal(document.getElementById("addRegionModal")).show();
+}
+
+function openAddBlock(cid, rid, scopeLabel) {
+  document.getElementById("blockCountryId").value = cid;
+  document.getElementById("blockRegionId").value  = rid || "";
+  document.getElementById("blockScopeLabel").textContent = scopeLabel;
+  document.getElementById("blockScopeInfo").textContent =
+    rid ? "This block will be stored under region: " + scopeLabel
+        : "This block will be stored at country level: " + scopeLabel;
+  new bootstrap.Modal(document.getElementById("addBlockModal")).show();
+}
+
+function scanBlock(bid, start, end) {
+  document.getElementById("scanDetailTitle").textContent = "Scanning " + start + " — " + end;
+  document.getElementById("scanDetailBody").innerHTML =
+    '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="text-muted small mt-2">Querying unified inventory…</p></div>';
+  document.getElementById("scanExportAllBtn").href  = "/admin/did/block/" + bid + "/export-all";
+  document.getElementById("scanExportFreeBtn").href = "/admin/did/block/" + bid + "/export-free";
+  const btn = document.getElementById("scan-" + bid);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  new bootstrap.Modal(document.getElementById("scanDetailModal")).show();
+
+  fetch("/admin/did/block/" + bid + "/scan")
+    .then(r => r.json())
+    .then(d => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-diagram-2"></i> Scan'; }
+      if (!d.ok) {
+        document.getElementById("scanDetailBody").innerHTML =
+          '<div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>' + esc(d.error) + '</div>';
+        return;
+      }
+      renderScanResult(d);
+    })
+    .catch(e => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-diagram-2"></i> Scan'; }
+      document.getElementById("scanDetailBody").innerHTML =
+        '<div class="alert alert-danger">Request failed: ' + esc(String(e)) + '</div>';
+    });
+}
+
+function renderScanResult(d) {
+  const pc = d.platform_counts || {};
+  let html = '';
+
+  if ((d.warnings || []).length) {
+    html += '<div class="alert alert-warning py-2 mb-3 small"><i class="bi bi-exclamation-triangle me-1"></i><strong>Incomplete inventory:</strong><ul class="mb-0 mt-1">' +
+      d.warnings.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul></div>';
+  }
+
+  const platBadges = Object.entries(pc).map(([p,n]) =>
+    `<span class="badge me-1" style="background:${PLAT_COLOURS[p]||'#888'};color:${PLAT_TEXT[p]||'#fff'};">${p}: ${n} assigned</span>`
+  ).join('');
+
+  html += `<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+    <span class="badge bg-danger">Assigned: ${d.assigned}</span>
+    <span class="badge bg-success">Available on ALL platforms: ${d.available}</span>
+    <span class="badge bg-light text-dark border">Total: ${d.total}</span>
+    ${platBadges}
+  </div>`;
+
+  // Build detailed table
+  html += `<table class="table table-sm table-bordered" style="font-size:.8rem;">
+    <thead class="table-dark">
+      <tr><th>Number</th><th>Status</th><th>Platform(s)</th><th>Assigned to</th><th>Type</th><th>Location</th></tr>
+    </thead><tbody>`;
+
+  (d.numbers || []).forEach(n => {
+    if (n.status === 'available') {
+      html += `<tr class="table-success">
+        <td class="font-monospace fw-bold">${esc(n.number)}</td>
+        <td><span class="badge bg-success">Available</span></td>
+        <td colspan="4" class="text-muted small">Not assigned on any platform</td>
+      </tr>`;
+    } else {
+      const first = n.details[0] || {};
+      const pb = n.platforms.map(p =>
+        `<span class="badge" style="background:${PLAT_COLOURS[p]||'#888'};color:${PLAT_TEXT[p]||'#fff'};font-size:.65rem;">${p}</span>`
+      ).join(' ');
+      html += `<tr>
+        <td class="font-monospace fw-bold">${esc(n.number)}</td>
+        <td><span class="badge bg-danger">Assigned</span></td>
+        <td>${pb}</td>
+        <td class="small">${formatAssignedTo(first.assigned_to)}</td>
+        <td class="small">${esc(first.type || first.number_type || '—')}</td>
+        <td class="small text-muted">${esc(first.location || '—')}</td>
+      </tr>`;
+      // Additional platform rows
+      for (let i = 1; i < n.details.length; i++) {
+        const det = n.details[i];
+        const p = det.platform;
+        html += `<tr style="opacity:.8;">
+          <td></td><td></td>
+          <td><span class="badge" style="background:${PLAT_COLOURS[p]||'#888'};color:${PLAT_TEXT[p]||'#fff'};font-size:.65rem;">${p}</span></td>
+          <td class="small">${formatAssignedTo(det.assigned_to)}</td>
+          <td class="small">${esc(det.type || det.number_type || '—')}</td>
+          <td class="small text-muted">${esc(det.location || '—')}</td>
+        </tr>`;
+      }
+    }
+  });
+  html += '</tbody></table>';
+  document.getElementById("scanDetailBody").innerHTML = html;
+}
+
+function formatAssignedTo(val) {
+  if (!val) return '<span class="text-muted">—</span>';
+  // If it looks like a raw GUID / objectId (no spaces, no @, 36 chars with dashes)
+  const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  if (isGuid) {
+    return `<span class="font-monospace" style="font-size:.72rem;color:#6b7280;" title="Object ID — sync to resolve display name">${esc(val.substring(0,8))}…</span>`;
+  }
+  // Looks like a real name or UPN — show as-is
+  return `<span>${esc(val)}</span>`;
+}
+
+function showNumberDetail(n) {
+  const body = document.getElementById("scanDetailBody");
+  let panel = document.getElementById("detail-panel");
+  if (!panel) { panel = document.createElement("div"); panel.id="detail-panel"; panel.className="alert alert-info py-2 mb-2 small"; body.prepend(panel); }
+  panel.innerHTML = `<strong>${esc(n.number)}</strong> — ${n.platforms.join(', ')}`;
+}
+
+function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+</script>
+{% endblock %}

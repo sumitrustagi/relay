@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RELAY — Sign In</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #001a33 0%, #003366 45%, #005a99 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Animated background nodes */
+    .bg-nodes { position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index:0; }
+    .node {
+      position:absolute; border-radius:50%;
+      background:rgba(0,188,235,.07); border:1px solid rgba(0,188,235,.1);
+      animation: float linear infinite;
+    }
+    @keyframes float {
+      0%   { transform:translateY(100vh) scale(.4); opacity:0; }
+      10%  { opacity:1; }
+      90%  { opacity:.4; }
+      100% { transform:translateY(-150px) scale(1); opacity:0; }
+    }
+
+    /* Login card */
+    .login-wrap {
+      position: relative; z-index:10;
+      width: 100%; max-width: 420px;
+      padding: 1rem;
+    }
+
+    .login-card {
+      background: rgba(255,255,255,.97);
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.1);
+      overflow: hidden;
+    }
+
+    .login-header {
+      background: linear-gradient(135deg, #002244 0%, #003366 60%, #004d80 100%);
+      padding: 2rem 2rem 1.5rem;
+      text-align: center;
+      position: relative;
+    }
+    .login-header::after {
+      content: '';
+      position: absolute; bottom:-1px; left:0; right:0; height:3px;
+      background: linear-gradient(90deg, transparent, #00BCEB, transparent);
+    }
+
+    .logo-glyph {
+      width: 62px; height: 62px; border-radius: 16px; margin: 0 auto 1rem;
+      background: linear-gradient(135deg, #00BCEB 0%, #0088bb 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.7rem; color: #fff;
+      box-shadow: 0 6px 20px rgba(0,188,235,.4);
+    }
+    .logo-name {
+      font-size: 1.9rem; font-weight: 800; letter-spacing: .1em;
+      color: #fff;
+    }
+    .logo-name span { color: #00BCEB; }
+    .logo-sub {
+      font-size: .75rem; color: rgba(255,255,255,.5);
+      letter-spacing: .08em; text-transform: uppercase; margin-top: 4px;
+    }
+
+    .login-body { padding: 2rem; }
+
+    /* Platform tags */
+    .plat-row {
+      display: flex; gap: 6px; justify-content: center; margin-bottom: 1.75rem;
+    }
+    .plat-tag {
+      font-size: .65rem; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+      letter-spacing: .05em;
+    }
+
+    /* Form */
+    .field-wrap { position:relative; margin-bottom: 1.1rem; }
+    .field-wrap label {
+      display:block; font-size:.78rem; font-weight:600; color:#374151; margin-bottom:5px;
+    }
+    .field-wrap .fi {
+      position:absolute; left:12px; top:50%; transform:translateY(-50%);
+      color:#9ca3af; font-size:1rem;
+    }
+    .field-wrap input {
+      width:100%; padding:.55rem .85rem .55rem 2.4rem;
+      border:1.5px solid #e5e7eb; border-radius:10px;
+      font-size:.9rem; transition:border-color .2s, box-shadow .2s;
+      outline:none; color:#111;
+    }
+    .field-wrap input:focus {
+      border-color:#003366; box-shadow:0 0 0 3px rgba(0,51,102,.1);
+    }
+    .toggle-pwd {
+      position:absolute; right:10px; top:50%; transform:translateY(-50%);
+      background:none; border:none; cursor:pointer; color:#9ca3af;
+      padding:4px; border-radius:5px; transition:color .15s;
+    }
+    .toggle-pwd:hover { color:#003366; }
+
+    .btn-signin {
+      width:100%; padding:.65rem; border:none; border-radius:10px;
+      background:linear-gradient(135deg,#003366 0%,#005599 100%);
+      color:#fff; font-weight:700; font-size:.95rem; cursor:pointer;
+      transition:transform .12s, box-shadow .15s;
+      box-shadow:0 4px 14px rgba(0,51,102,.35);
+      display:flex; align-items:center; justify-content:center; gap:8px;
+    }
+    .btn-signin:hover {
+      transform:translateY(-1px); box-shadow:0 6px 20px rgba(0,51,102,.45);
+    }
+    .btn-signin:active { transform:scale(.98); }
+
+    /* Flash alerts */
+    .flash-box { padding:.6rem .85rem; border-radius:9px; font-size:.82rem; margin-bottom:1rem; }
+    .flash-danger { background:#fef2f2; color:#991b1b; border-left:3px solid #ef4444; }
+    .flash-warning { background:#fffbeb; color:#92400e; border-left:3px solid #f59e0b; }
+
+    .login-footer {
+      text-align:center; padding-bottom:1.5rem;
+      font-size:.72rem; color:#9ca3af; letter-spacing:.03em;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Animated background -->
+<div class="bg-nodes" id="bgNodes"></div>
+
+<div class="login-wrap">
+  <div class="login-card">
+
+    <div class="login-header">
+      <div class="logo-glyph"><i class="bi bi-diagram-3-fill"></i></div>
+      <div class="logo-name">RE<span>LAY</span></div>
+      <div class="logo-sub">Multi-Platform Call Forwarding Manager</div>
+    </div>
+
+    <div class="login-body">
+
+      <div class="plat-row">
+        <span class="plat-tag" style="background:#ede9fe;color:#4a4c89;">Teams</span>
+        <span class="plat-tag" style="background:#e0f7fd;color:#007fa3;">Webex</span>
+        <span class="plat-tag" style="background:#e0f2fe;color:#0369a1;">CUCM</span>
+      </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for cat, msg in messages %}
+            <div class="flash-box flash-{{ cat }}">
+              <i class="bi {{ 'bi-exclamation-circle' if cat=='danger' else 'bi-info-circle' }} me-1"></i>
+              {{ msg }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" action="{{ url_for('auth.login') }}" novalidate>
+
+        <div class="field-wrap">
+          <label>Username</label>
+          <i class="bi bi-person fi"></i>
+          <input type="text" name="username" placeholder="Enter your username"
+                 autofocus autocomplete="username" required>
+        </div>
+
+        <div class="field-wrap">
+          <label>Password</label>
+          <i class="bi bi-lock fi"></i>
+          <input type="password" name="password" id="pwd"
+                 placeholder="Enter your password"
+                 autocomplete="current-password" required>
+          <button type="button" class="toggle-pwd" tabindex="-1"
+                  onclick="let p=document.getElementById('pwd');p.type=p.type==='password'?'text':'password';this.querySelector('i').className='bi bi-eye'+(p.type==='text'?'-slash':'');">
+            <i class="bi bi-eye"></i>
+          </button>
+        </div>
+
+        <button type="submit" class="btn-signin mt-1">
+          <i class="bi bi-box-arrow-in-right"></i>
+          Sign In
+        </button>
+
+      </form>
+    </div>
+
+    <div class="login-footer">
+      RELAY v1.0 &nbsp;·&nbsp; Secure Access Only &nbsp;·&nbsp; HCLTech
+    </div>
+  </div>
+</div>
+
+<script>
+// Generate floating background nodes
+const wrap = document.getElementById('bgNodes');
+for (let i = 0; i < 18; i++) {
+  const n = document.createElement('div');
+  n.className = 'node';
+  const s = 40 + Math.random() * 120;
+  n.style.cssText = `width:${s}px;height:${s}px;left:${Math.random()*100}%;
+    animation-duration:${10+Math.random()*18}s;
+    animation-delay:${-Math.random()*20}s;
+    opacity:${0.3+Math.random()*0.4};`;
+  wrap.appendChild(n);
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

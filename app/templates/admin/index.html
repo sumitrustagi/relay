@@ -1,0 +1,918 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel — RELAY{% endblock %}
+{% block content_auth %}
+
+<h5 class="mb-3"><i class="bi bi-gear me-2 text-primary"></i>Admin Panel</h5>
+
+{# ══════════ PLATFORM SETTINGS ══════════ #}
+<div class="card mb-4">
+  <div class="card-header navy">
+    <i class="bi bi-toggles me-2"></i>Platform Settings
+  </div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('admin.save_platform_settings') }}">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label fw-semibold small">Client / Organisation Name</label>
+          <input type="text" name="client_name" class="form-control form-control-sm"
+                 value="{{ platform_settings.client_name or '' }}"
+                 placeholder="e.g. ACME Corp">
+        </div>
+        <div class="col-12">
+          <div class="row g-3">
+            <div class="col-12">
+              <span class="fw-semibold small text-muted text-uppercase"
+                    style="font-size:.65rem;letter-spacing:.08em;">
+                Platforms
+              </span>
+            </div>
+            <div class="col-md-4">
+              <div class="card border-2 {{ 'border-primary' if platform_settings.has_teams else '' }}">
+                <div class="card-body py-2 px-3">
+                  <div class="form-check form-switch">
+                    <input type="checkbox" name="has_teams" class="form-check-input"
+                           role="switch" id="sw_teams"
+                           {{ 'checked' if platform_settings.has_teams }}>
+                    <label class="form-check-label fw-semibold" for="sw_teams">
+                      <span style="color:#6264A7;"><i class="bi bi-microsoft me-1"></i></span>
+                      Microsoft Teams
+                    </label>
+                  </div>
+                  <div class="text-muted small">Call forwarding, schedules, DID lookup</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="card border-2 {{ 'border-info' if platform_settings.has_webex else '' }}">
+                <div class="card-body py-2 px-3">
+                  <div class="form-check form-switch">
+                    <input type="checkbox" name="has_webex" class="form-check-input"
+                           role="switch" id="sw_webex"
+                           {{ 'checked' if platform_settings.has_webex }}>
+                    <label class="form-check-label fw-semibold" for="sw_webex">
+                      <span style="color:#00BCEB;"><i class="bi bi-telephone me-1"></i></span>
+                      Webex Calling
+                    </label>
+                  </div>
+                  <div class="text-muted small">Webex schedules and number lookup</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="card border-2 {{ 'border-secondary' if platform_settings.has_cucm else '' }}">
+                <div class="card-body py-2 px-3">
+                  <div class="form-check form-switch">
+                    <input type="checkbox" name="has_cucm" class="form-check-input"
+                           role="switch" id="sw_cucm"
+                           {{ 'checked' if platform_settings.has_cucm }}>
+                    <label class="form-check-label fw-semibold" for="sw_cucm">
+                      <span style="color:#049fd9;"><i class="bi bi-hdd-network me-1"></i></span>
+                      Cisco CUCM
+                    </label>
+                  </div>
+                  <div class="text-muted small">CUCM call control integration</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12 mt-2">
+              <span class="fw-semibold small text-muted text-uppercase"
+                    style="font-size:.65rem;letter-spacing:.08em;">
+                Add-ons
+              </span>
+            </div>
+            <div class="col-md-3">
+              <div class="form-check form-switch">
+                <input type="checkbox" name="has_did" class="form-check-input"
+                       role="switch" id="sw_did"
+                       {{ 'checked' if platform_settings.has_did }}>
+                <label class="form-check-label small fw-semibold" for="sw_did">
+                  <i class="bi bi-grid-3x3 me-1 text-secondary"></i>DID Management
+                </label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="form-check form-switch">
+                <input type="checkbox" name="has_cert_monitor" class="form-check-input"
+                       role="switch" id="sw_cert"
+                       {{ 'checked' if platform_settings.has_cert_monitor }}>
+                <label class="form-check-label small fw-semibold" for="sw_cert">
+                  <i class="bi bi-shield-check me-1 text-success"></i>Cert Monitor
+                </label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="form-check form-switch">
+                <input type="checkbox" name="has_ldap" class="form-check-input"
+                       role="switch" id="sw_ldap"
+                       {{ 'checked' if platform_settings.has_ldap }}>
+                <label class="form-check-label small fw-semibold" for="sw_ldap">
+                  <i class="bi bi-diagram-3 me-1 text-primary"></i>LDAP / AD Sync
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-sm btn-navy">
+            <i class="bi bi-save me-1"></i>Save Platform Settings
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ══════════ API CONFIG CARDS (side by side) ══════════ #}
+<div class="row g-3 mb-4">
+
+  {# Teams / Graph #}
+  {% if has_teams %}
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header navy" style="background:#6264A7;">
+        <i class="bi bi-microsoft me-2"></i>Microsoft Teams — Graph API
+        <span class="badge {{ 'bg-success' if cfg and cfg.is_configured() else 'bg-danger' }} ms-2">
+          {{ 'Configured' if cfg and cfg.is_configured() else 'Not set' }}
+        </span>
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.save_graph_config') }}">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label fw-semibold small">Tenant ID</label>
+              <input type="text" name="tenant_id" class="form-control form-control-sm font-monospace"
+                     value="{{ cfg.tenant_id if cfg else '' }}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Client ID (App ID)</label>
+              <input type="text" name="client_id" class="form-control form-control-sm font-monospace"
+                     value="{{ cfg.client_id if cfg else '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Client Secret</label>
+              <input type="password" name="client_secret" class="form-control form-control-sm"
+                     placeholder="{{ '••••••••' if cfg and cfg.client_secret else 'Enter secret' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Service Account UPN</label>
+              <input type="email" name="service_account_upn" class="form-control form-control-sm"
+                     value="{{ cfg.service_account_upn if cfg else '' }}"
+                     placeholder="svc-relay@tenant.onmicrosoft.com">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Service Account Password</label>
+              <input type="password" name="service_account_password" class="form-control form-control-sm"
+                     placeholder="{{ '••••••••' if cfg and cfg.service_account_password else 'Enter password' }}">
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="btn btn-sm fw-semibold text-white" style="background:#6264A7;">
+              <i class="bi bi-save me-1"></i>Save Teams Config
+            </button>
+            <form method="POST" action="{{ url_for('admin.refresh_tokens') }}" class="mb-0">
+              <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-repeat me-1"></i>Refresh Tokens
+              </button>
+            </form>
+          </div>
+        </form>
+        {% if cfg and (cfg.graph_token_expiry or cfg.teams_token_expiry) %}
+        <div class="mt-2 small text-muted">
+          Graph token expires:
+          <code>{{ cfg.graph_token_expiry.strftime('%Y-%m-%d %H:%M') if cfg.graph_token_expiry else '—' }}</code>
+          &nbsp;|&nbsp; Teams token:
+          <code>{{ cfg.teams_token_expiry.strftime('%Y-%m-%d %H:%M') if cfg.teams_token_expiry else '—' }}</code>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Webex #}
+  {% if has_webex %}
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header navy" style="background:#00BCEB;">
+        <i class="bi bi-telephone me-2"></i>Webex Calling — API Config
+        <span class="badge {{ 'bg-light text-dark' if webex_cfg and webex_cfg.is_configured() else 'bg-danger' }} ms-2">
+          {{ 'Configured' if webex_cfg and webex_cfg.is_configured() else 'Not set' }}
+        </span>
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.save_webex_config') }}">
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Client ID</label>
+              <input type="text" name="client_id" class="form-control form-control-sm font-monospace"
+                     value="{{ webex_cfg.client_id if webex_cfg else '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Client Secret</label>
+              <input type="password" name="client_secret" class="form-control form-control-sm"
+                     placeholder="{{ '••••••••' if webex_cfg and webex_cfg.client_secret else 'Enter secret' }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold small">Refresh Token</label>
+              <input type="password" name="refresh_token" class="form-control form-control-sm"
+                     placeholder="{{ '••••••••' if webex_cfg and webex_cfg.refresh_token else 'Paste refresh token' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Access Token (optional)</label>
+              <input type="password" name="access_token" class="form-control form-control-sm"
+                     placeholder="Auto-refreshed from refresh token">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Org ID (optional)</label>
+              <input type="text" name="org_id" class="form-control form-control-sm font-monospace"
+                     value="{{ webex_cfg.org_id if webex_cfg else '' }}">
+            </div>
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-sm fw-semibold text-dark" style="background:#00BCEB;">
+              <i class="bi bi-save me-1"></i>Save Webex Config
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ══════════ CUCM CONFIG ══════════ #}
+{% if has_cucm %}
+<div class="row g-4 mb-4">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center"
+           style="background:#049fd9;color:#fff;">
+        <span><i class="bi bi-hdd-network me-2"></i>Cisco CUCM — Clusters
+          <span class="badge bg-light text-dark ms-2">{{ cucm_clusters|length }}</span>
+        </span>
+        <button class="btn btn-sm btn-light py-0 px-2"
+                data-bs-toggle="modal" data-bs-target="#addCucmModal"
+                style="font-size:.78rem;">
+          <i class="bi bi-plus me-1"></i>Add Cluster
+        </button>
+      </div>
+      <div class="card-body p-0">
+        {% if not cucm_clusters %}
+        <div class="text-center text-muted py-4 small">
+          <i class="bi bi-hdd-network fs-3 d-block mb-2 opacity-25"></i>
+          No CUCM clusters configured.<br>Click <strong>Add Cluster</strong> to add one.
+        </div>
+        {% endif %}
+        {% for cl in cucm_clusters %}
+        <div class="border-bottom p-3">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="fw-semibold">
+                {{ cl.label }}
+                <span class="badge ms-1 {{ 'bg-success' if cl.is_enabled else 'bg-secondary' }}"
+                      style="font-size:.65rem;">
+                  {{ 'Enabled' if cl.is_enabled else 'Disabled' }}
+                </span>
+                {% if cl.is_configured() %}
+                <span class="badge bg-light text-dark border ms-1" style="font-size:.65rem;">
+                  <i class="bi bi-check-circle text-success me-1"></i>Configured
+                </span>
+                {% else %}
+                <span class="badge bg-danger ms-1" style="font-size:.65rem;">Incomplete</span>
+                {% endif %}
+              </div>
+              <div class="text-muted font-monospace" style="font-size:.78rem;">
+                {{ cl.cucm_host or '—' }}
+                <span class="ms-2 text-muted">v{{ cl.cucm_version }}</span>
+              </div>
+            </div>
+            <div class="d-flex gap-1 flex-wrap justify-content-end">
+              {% if cl.is_configured() %}
+              <form method="POST" action="{{ url_for('admin.test_cucm_cluster', cid=cl.id) }}" class="d-inline">
+                <button class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:1px 6px;"
+                        title="Test AXL connection">
+                  <i class="bi bi-plug"></i>
+                </button>
+              </form>
+              {% endif %}
+              <button class="btn btn-xs btn-outline-primary" style="font-size:.72rem;padding:1px 6px;"
+                      data-bs-toggle="modal" data-bs-target="#editCucmModal{{ cl.id }}"
+                      title="Edit cluster">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <form method="POST" action="{{ url_for('admin.toggle_cucm_cluster', cid=cl.id) }}" class="d-inline">
+                <button class="btn btn-xs {{ 'btn-outline-warning' if cl.is_enabled else 'btn-outline-success' }}"
+                        style="font-size:.72rem;padding:1px 6px;"
+                        title="{{ 'Disable' if cl.is_enabled else 'Enable' }}">
+                  <i class="bi {{ 'bi-pause' if cl.is_enabled else 'bi-play' }}"></i>
+                </button>
+              </form>
+              <form method="POST" action="{{ url_for('admin.delete_cucm_cluster', cid=cl.id) }}" class="d-inline"
+                    onsubmit="return confirm('Delete CUCM cluster {{ cl.label }}?')">
+                <button class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:1px 6px;">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        {# Edit cluster modal #}
+        <div class="modal fade" id="editCucmModal{{ cl.id }}" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header navy">
+                <h6 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit — {{ cl.label }}</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+              </div>
+              <form method="POST" action="{{ url_for('admin.edit_cucm_cluster', cid=cl.id) }}">
+                <div class="modal-body row g-2">
+                  <div class="col-12">
+                    <label class="form-label fw-semibold small">Cluster Label</label>
+                    <input type="text" name="label" class="form-control form-control-sm"
+                           value="{{ cl.label }}" required>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label fw-semibold small">Publisher Host / IP</label>
+                    <input type="text" name="cucm_host" class="form-control form-control-sm font-monospace"
+                           value="{{ cl.cucm_host or '' }}" placeholder="10.0.0.1 or cucm.example.com">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label fw-semibold small">AXL Username</label>
+                    <input type="text" name="cucm_username" class="form-control form-control-sm"
+                           value="{{ cl.cucm_username or '' }}">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label fw-semibold small">AXL Password</label>
+                    <input type="password" name="cucm_password" class="form-control form-control-sm"
+                           placeholder="{{ '••••••••' if cl.cucm_password else 'Enter password' }}">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label fw-semibold small">AXL Schema Version</label>
+                    <select name="cucm_version" class="form-select form-select-sm">
+                      {% for v in ['15.0','14.0','12.5','12.0','11.5','11.0','10.5'] %}
+                      <option value="{{ v }}" {{ 'selected' if cl.cucm_version == v }}>{{ v }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-md-6 d-flex align-items-end pb-1">
+                    <div class="form-check form-switch">
+                      <input type="checkbox" name="verify_ssl" class="form-check-input"
+                             id="essl{{ cl.id }}" {{ 'checked' if cl.verify_ssl }}>
+                      <label class="form-check-label small" for="essl{{ cl.id }}">Verify SSL</label>
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-sm btn-navy">
+                    <i class="bi bi-save me-1"></i>Save
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if cucm_clusters %}
+      <div class="card-footer py-1 small text-muted">
+        <i class="bi bi-info-circle me-1"></i>
+        All enabled clusters are synced during DID inventory sync.
+        The first enabled cluster is used for CUCM Lookup & Forwarding.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Add CUCM Cluster modal ── #}
+{% if has_cucm %}
+<div class="modal fade" id="addCucmModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header navy">
+        <h6 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add CUCM Cluster</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.add_cucm_cluster') }}">
+        <div class="modal-body row g-2">
+          <div class="col-12">
+            <label class="form-label fw-semibold small">Cluster Label <span class="text-danger">*</span></label>
+            <input type="text" name="label" class="form-control form-control-sm"
+                   placeholder="e.g. UK HQ, US West, Belgium" required>
+            <div class="form-text small">Friendly name — shown in DID scans and audit logs.</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold small">Publisher Host / IP <span class="text-danger">*</span></label>
+            <input type="text" name="cucm_host" class="form-control form-control-sm font-monospace"
+                   placeholder="10.0.0.1 or cucm.example.com" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">AXL Username <span class="text-danger">*</span></label>
+            <input type="text" name="cucm_username" class="form-control form-control-sm"
+                   placeholder="axladmin" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">AXL Password <span class="text-danger">*</span></label>
+            <input type="password" name="cucm_password" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">AXL Schema Version</label>
+            <select name="cucm_version" class="form-select form-select-sm">
+              {% for v in ['15.0','14.0','12.5','12.0','11.5','11.0','10.5'] %}
+              <option value="{{ v }}" {{ 'selected' if v == '12.5' }}>{{ v }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6 d-flex align-items-end pb-1">
+            <div class="form-check form-switch">
+              <input type="checkbox" name="verify_ssl" class="form-check-input" id="new_cucm_ssl">
+              <label class="form-check-label small" for="new_cucm_ssl">Verify SSL</label>
+              <div class="form-text small">Leave off for self-signed CUCM certs.</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-navy">
+            <i class="bi bi-plus me-1"></i>Add Cluster
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════ SMTP CONFIG ══════════ #}
+<div class="row g-4 mb-4">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header navy"
+           style="background:linear-gradient(135deg,#1e293b,#334155);">
+        <i class="bi bi-envelope-at me-2"></i>SMTP — Certificate Alert Emails
+        <span class="badge {{ 'bg-success' if smtp_cfg and smtp_cfg.enabled else 'bg-secondary' }} ms-2">
+          {{ 'Active' if smtp_cfg and smtp_cfg.enabled else 'Disabled' }}
+        </span>
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.save_smtp_config') }}">
+          <div class="row g-2">
+            <div class="col-12">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="smtp_enabled" id="smtp_en_idx"
+                       {{ 'checked' if smtp_cfg and smtp_cfg.enabled }}>
+                <label class="form-check-label small fw-semibold" for="smtp_en_idx">Enable expiry alert emails</label>
+              </div>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-semibold small">SMTP Host</label>
+              <input type="text" name="smtp_host" class="form-control form-control-sm font-monospace"
+                     value="{{ smtp_cfg.host if smtp_cfg else '' }}" placeholder="smtp.office365.com">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold small">Port</label>
+              <input type="number" name="smtp_port" class="form-control form-control-sm"
+                     value="{{ smtp_cfg.port if smtp_cfg else 587 }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Username</label>
+              <input type="text" name="smtp_user" class="form-control form-control-sm"
+                     value="{{ smtp_cfg.username if smtp_cfg else '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Password</label>
+              <input type="password" name="smtp_pass" class="form-control form-control-sm"
+                     placeholder="{{ '••••••••' if smtp_cfg and smtp_cfg.password else 'Enter password' }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold small">From Address</label>
+              <input type="email" name="smtp_from" class="form-control form-control-sm"
+                     value="{{ smtp_cfg.from_addr if smtp_cfg else '' }}"
+                     placeholder="relay@company.com">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold small">Alert Recipients (comma-separated)</label>
+              <input type="text" name="smtp_alert_to" class="form-control form-control-sm"
+                     value="{{ smtp_cfg.alert_to if smtp_cfg else '' }}"
+                     placeholder="noc@company.com, admin@company.com">
+            </div>
+            <div class="col-12 d-flex gap-3">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="smtp_tls" id="smtp_tls_idx"
+                       {{ 'checked' if smtp_cfg and smtp_cfg.use_tls }}>
+                <label class="form-check-label small" for="smtp_tls_idx">STARTTLS</label>
+              </div>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="smtp_ssl" id="smtp_ssl_idx"
+                       {{ 'checked' if smtp_cfg and smtp_cfg.use_ssl }}>
+                <label class="form-check-label small" for="smtp_ssl_idx">SSL/TLS (465)</label>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 d-flex gap-2">
+            <button type="submit" class="btn btn-sm text-white" style="background:#1e293b;">
+              <i class="bi bi-save me-1"></i>Save SMTP
+            </button>
+          </div>
+        </form>
+        <form method="POST" action="{{ url_for('admin.test_smtp') }}" class="mt-2">
+          <button type="submit" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-send me-1"></i>Send Test Email
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ══════════ USER MANAGEMENT ══════════ #}
+<div class="card mb-4">
+  <div class="card-header fw-semibold text-white d-flex justify-content-between align-items-center"
+      >
+    <span><i class="bi bi-people me-2"></i>Users</span>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-light py-0" data-bs-toggle="modal"
+              data-bs-target="#addUserModal">
+        <i class="bi bi-person-plus me-1"></i>Add User
+      </button>
+      <button class="btn btn-sm btn-light py-0" data-bs-toggle="modal"
+              data-bs-target="#bulkImportModal">
+        <i class="bi bi-upload me-1"></i>Bulk Import
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>Username</th><th>Email</th><th>Role</th>
+            <th>Platform</th><th>Teams UPN</th><th>Extension</th>
+            <th>Status</th><th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td class="fw-semibold">
+              {{ u.username }}
+              {% if u.ldap_server_id %}
+                <span class="badge bg-light text-dark border ms-1" title="LDAP user">
+                  <i class="bi bi-diagram-3" style="font-size:.65rem;"></i>
+                </span>
+              {% endif %}
+            </td>
+            <td class="text-muted small">{{ u.email }}</td>
+            <td>
+              {# Inline role change dropdown — admin only, cannot demote self #}
+              {% if u.id != current_user.id %}
+              <form method="POST" action="{{ url_for('admin.change_role', uid=u.id) }}"
+                    class="d-flex align-items-center gap-1"
+                    onsubmit="return confirm('Change role for {{ u.username }}?')">
+                <select name="role" class="form-select form-select-sm py-0"
+                        style="font-size:.72rem;width:auto;min-width:90px;"
+                        title="Change role">
+                  <option value="user"      {{ 'selected' if u.role=='user' }}>user</option>
+                  <option value="superuser" {{ 'selected' if u.role=='superuser' }}>superuser</option>
+                  <option value="admin"     {{ 'selected' if u.role=='admin' }}>admin</option>
+                </select>
+                <button type="submit" class="btn btn-xs btn-outline-secondary"
+                        style="font-size:.68rem;padding:1px 5px;" title="Apply">
+                  <i class="bi bi-check2"></i>
+                </button>
+              </form>
+              {% else %}
+              <span class="badge {{ 'bg-danger' if u.role=='admin' else 'bg-primary' if u.role=='superuser' else 'bg-secondary' }}"
+                    title="Your own role — cannot be changed here">
+                {{ u.role }}
+              </span>
+              {% endif %}
+            </td>
+            <td>
+              {% if u.user_platform == 'teams' %}
+                <span class="badge" style="background:#6264A7;">Teams</span>
+              {% elif u.user_platform == 'webex' %}
+                <span class="badge" style="background:#00BCEB;color:#000;">Webex</span>
+              {% elif u.user_platform == 'cucm' %}
+                <span class="badge" style="background:#049fd9;">CUCM</span>
+              {% else %}
+                <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
+            <td class="text-muted small">{{ u.teams_upn or '—' }}</td>
+            <td class="font-monospace small">{{ u.teams_extension or '—' }}</td>
+            <td>
+              <span class="badge {{ 'bg-success' if u.is_active else 'bg-secondary' }}">
+                {{ 'Active' if u.is_active else 'Disabled' }}
+              </span>
+            </td>
+            <td class="text-end">
+              <button class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:1px 7px;"
+                      data-bs-toggle="modal" data-bs-target="#extModal{{ u.id }}">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <form method="POST" action="{{ url_for('admin.toggle_user', uid=u.id) }}"
+                    class="d-inline">
+                <button type="submit" class="btn btn-xs {{ 'btn-outline-warning' if u.is_active else 'btn-outline-success' }}"
+                        style="font-size:.72rem;padding:1px 7px;"
+                        title="{{ 'Disable' if u.is_active else 'Enable' }}">
+                  <i class="bi {{ 'bi-pause' if u.is_active else 'bi-play' }}"></i>
+                </button>
+              </form>
+              {% if u.username != current_user.username %}
+              <form method="POST" action="{{ url_for('admin.delete_user', uid=u.id) }}"
+                    class="d-inline"
+                    onsubmit="return confirm('Delete user {{ u.username }}?')">
+                <button type="submit" class="btn btn-xs btn-outline-danger"
+                        style="font-size:.72rem;padding:1px 7px;">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ── Role Reference ──────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-header navy">
+    <i class="bi bi-shield-check me-2"></i>Role &amp; Permission Reference
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th style="width:100px;">Role</th>
+          <th>Forwarding</th>
+          <th>Schedules &amp; CSV</th>
+          <th>Number Lookup</th>
+          <th>Admin Panel</th>
+          <th>DID / Certs / LDAP</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="badge bg-danger">admin</span></td>
+          <td class="small">Any user, any platform</td>
+          <td class="small">Any user, CSV upload</td>
+          <td class="small">Full directory search</td>
+          <td class="text-success small fw-semibold"><i class="bi bi-check-circle me-1"></i>Full access</td>
+          <td class="text-success small fw-semibold"><i class="bi bi-check-circle me-1"></i>Full access</td>
+        </tr>
+        <tr class="table-light">
+          <td><span class="badge bg-primary">superuser</span></td>
+          <td class="small">Any user, any platform</td>
+          <td class="small">Any user, CSV upload</td>
+          <td class="small">Full directory search</td>
+          <td class="text-danger small"><i class="bi bi-x-circle me-1"></i>No access</td>
+          <td class="text-danger small"><i class="bi bi-x-circle me-1"></i>No access</td>
+        </tr>
+        <tr>
+          <td><span class="badge bg-secondary">user</span></td>
+          <td class="small">Own extension only</td>
+          <td class="small">Own extension only</td>
+          <td class="small">Own extension only</td>
+          <td class="text-danger small"><i class="bi bi-x-circle me-1"></i>No access</td>
+          <td class="text-danger small"><i class="bi bi-x-circle me-1"></i>No access</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer py-1 small text-muted">
+    <i class="bi bi-info-circle me-1"></i>
+    <strong>relay_role</strong> (standard / supervisor / manager / readonly) controls forwarding scope within the user tier.
+    Set via <a href="{{ url_for('ldap_mgmt.index') if has_ldap else '#' }}">LDAP Sync → Relay Role</a> or direct DB assignment.
+  </div>
+</div>
+
+{# ── Upload Storage Stats ─────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-header navy d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-folder2-open me-2"></i>Upload Storage</span>
+    <div class="d-flex gap-2">
+      <button class="btn btn-xs btn-light py-0" onclick="loadUploadStats()">
+        <i class="bi bi-arrow-repeat me-1"></i>Refresh
+      </button>
+      <form method="POST" action="{{ url_for('admin.rotate_uploads') }}" class="d-inline"
+            onsubmit="return confirm('Delete upload files older than retention limits?')">
+        <button type="submit" class="btn btn-xs btn-light py-0">
+          <i class="bi bi-trash me-1"></i>Rotate Now
+        </button>
+      </form>
+    </div>
+  </div>
+  <div class="card-body" id="uploadStatsBody">
+    <div class="text-muted small text-center py-2">
+      <button class="btn btn-sm btn-outline-secondary" onclick="loadUploadStats()">
+        <i class="bi bi-bar-chart me-1"></i>Load storage stats
+      </button>
+    </div>
+  </div>
+  <div class="card-footer py-1 small text-muted">
+    Retention: CSV uploads 90 days · Cert files 365 days · Temp files 24 h ·
+    Auto-rotated every Sunday 02:00 UTC
+  </div>
+</div>
+
+{# ══════════ USER MODALS ══════════ #}
+
+{# Add User #}
+<div class="modal fade" id="addUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header navy">
+        <h6 class="modal-title"><i class="bi bi-person-plus me-2"></i>Add User</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.create_user') }}">
+        <div class="modal-body row g-3">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Username</label>
+            <input type="text" name="username" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Role</label>
+            <select name="role" class="form-select form-select-sm">
+              <option value="user">user — own extension only</option>
+              <option value="superuser">superuser — manage any user's forwarding &amp; CSV upload, no admin panel</option>
+              <option value="admin">admin — full admin panel access</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Platform</label>
+            <select name="user_platform" class="form-select form-select-sm">
+              {% if has_teams %}<option value="teams" selected>Microsoft Teams</option>{% endif %}
+              {% if has_webex %}<option value="webex">Webex Calling</option>{% endif %}
+              {% if has_cucm  %}<option value="cucm">Cisco CUCM</option>{% endif %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Email</label>
+            <input type="email" name="email" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Password</label>
+            <input type="password" name="password" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Teams UPN</label>
+            <input type="email" name="teams_upn" class="form-control form-control-sm"
+                   placeholder="user@tenant.onmicrosoft.com">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Extension (E.164)</label>
+            <input type="text" name="teams_extension" class="form-control form-control-sm font-monospace"
+                   placeholder="+3227001234">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-navy">
+            <i class="bi bi-plus me-1"></i>Create User
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# Per-user edit modal #}
+{% for u in users %}
+<div class="modal fade" id="extModal{{ u.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header navy">
+        <h6 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit — {{ u.username }}</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {# Extension / UPN #}
+        <form method="POST" action="{{ url_for('admin.assign_extension', uid=u.id) }}"
+              class="border rounded p-3 mb-3">
+          <div class="fw-semibold small mb-2 text-muted">Calling Details</div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Teams UPN</label>
+              <input type="email" name="teams_upn" class="form-control form-control-sm"
+                     value="{{ u.teams_upn or '' }}" placeholder="user@tenant.onmicrosoft.com">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold small">Extension (E.164)</label>
+              <input type="text" name="teams_extension"
+                     class="form-control form-control-sm font-monospace"
+                     value="{{ u.teams_extension or '' }}" placeholder="+3227001234">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-sm text-white mt-2">
+            <i class="bi bi-save me-1"></i>Save
+          </button>
+        </form>
+        {# Password reset #}
+        <form method="POST" action="{{ url_for('admin.reset_password', uid=u.id) }}"
+              class="border rounded p-3">
+          <div class="fw-semibold small mb-2 text-muted">Reset Password</div>
+          <div class="input-group input-group-sm">
+            <input type="password" name="new_password" class="form-control"
+                   placeholder="New password" required>
+            <button type="submit" class="btn btn-outline-danger btn-sm">Reset</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{# Bulk Import #}
+<div class="modal fade" id="bulkImportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header navy">
+        <h6 class="modal-title"><i class="bi bi-upload me-2"></i>Bulk Import Users</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('admin.bulk_import_users') }}"
+            enctype="multipart/form-data">
+        <div class="modal-body">
+          <p class="small text-muted mb-2">
+            <strong>Required columns:</strong>
+            <code>username, email, password, role</code><br>
+            <strong>Optional columns:</strong>
+            <code>teams_upn, teams_extension, platform</code>
+          </p>
+          <div class="p-2 rounded mb-3" style="background:#f8f9fa;font-size:.75rem;">
+            <strong>Role values:</strong>
+            <span class="badge bg-secondary ms-1">user</span> — own extension only &nbsp;
+            <span class="badge bg-primary ms-1">superuser</span> — manage all forwarding, no admin panel &nbsp;
+            <span class="badge bg-danger ms-1">admin</span> — full admin access<br>
+            <strong>Platform values:</strong>
+            <code>teams</code> | <code>webex</code> | <code>cucm</code> &nbsp;
+            (defaults to <code>teams</code> if blank)
+          </div>
+          <input type="file" name="csv_file" class="form-control form-control-sm"
+                 accept=".csv" required>
+          <div class="form-text">
+            <a href="{{ url_for('admin.bulk_import_template') }}">
+              <i class="bi bi-download me-1"></i>Download template
+            </a>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-navy">
+            <i class="bi bi-upload me-1"></i>Import
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loadUploadStats() {
+  const body = document.getElementById("uploadStatsBody");
+  body.innerHTML = '<div class="text-center py-2"><span class="spinner-border spinner-border-sm"></span></div>';
+  fetch("{{ url_for('admin.upload_stats') }}")
+    .then(r => r.json())
+    .then(d => {
+      const subs = d.subdirs || {};
+      let html = '<div class="row g-3">';
+      const icons = {csv: 'bi-filetype-csv', certs: 'bi-award', temp: 'bi-clock'};
+      const labels = {csv: 'CSV uploads', certs: 'Cert files', temp: 'Temp files'};
+      ['csv','certs','temp'].forEach(k => {
+        const s = subs[k] || {count: 0, size_kb: 0};
+        html += `<div class="col-md-4">
+          <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:#f8fafc;border:0.5px solid #e2e8f0;">
+            <i class="bi ${icons[k]} text-primary" style="font-size:1.3rem;"></i>
+            <div>
+              <div class="fw-semibold small">${labels[k]}</div>
+              <div class="text-muted" style="font-size:.75rem;">${s.count} files · ${s.size_kb} KB</div>
+            </div>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+      html += `<div class="text-muted mt-2" style="font-size:.74rem;">
+        Base: <code>${d.base_dir || '—'}</code> ·
+        Total: ${d.total_files} files · ${d.total_size_kb} KB
+      </div>`;
+      body.innerHTML = html;
+    })
+    .catch(e => {
+      body.innerHTML = '<p class="text-danger small mb-0">Could not load stats: ' + e + '</p>';
+    });
+}
+</script>
+{% endblock %}

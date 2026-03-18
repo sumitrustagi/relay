@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block title %}Manual Forward — RELAY{% endblock %}
+
+{% block extra_head %}
+<style>
+.plat-badge-lg {
+  display:inline-flex; align-items:center; gap:.4rem;
+  padding:.35rem .8rem; border-radius:20px;
+  font-size:.82rem; font-weight:600;
+}
+.forward-card { border-radius:14px; overflow:hidden; }
+.forward-card .card-header { padding:.85rem 1.2rem; }
+</style>
+{% endblock %}
+
+{% block content_auth %}
+
+<div class="page-header mb-4">
+  <div>
+    <h5><i class="bi bi-arrow-left-right me-2 text-primary"></i>Manual Forward</h5>
+    <p class="text-muted small mb-0">
+      {% if current_user.is_admin() %}
+        Instantly forward calls for any user on any enabled platform.
+      {% elif current_user.is_superuser() %}
+        Instantly forward calls for any user on <strong>{{ {'teams':'Microsoft Teams','webex':'Webex Calling','cucm':'Cisco CUCM'}.get(current_user.user_platform, current_user.user_platform) }}</strong>.
+      {% else %}
+        Instantly enable or disable call forwarding for your own extension.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+{# ═══ ADMIN / SUPERUSER VIEW ═══════════════════════════════════════════════ #}
+{% if current_user.can_manage_others() %}
+
+<div class="row g-4">
+  {# Admin sees all enabled platforms. Superuser sees only their own platform. #}
+  {% if has_teams and (current_user.is_admin() or current_user.user_platform == 'teams') %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card forward-card h-100">
+      <div class="card-header d-flex align-items-center gap-2" style="background:linear-gradient(135deg,#4a4c89,#6264A7);color:#fff;">
+        <i class="bi bi-microsoft-teams fs-5"></i>
+        <span class="fw-semibold">Microsoft Teams</span>
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          Enter the Teams user's phone number (E.164) or UPN, then the destination number.
+        </p>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">User Number / UPN <span class="text-danger">*</span></label>
+          <input type="text" id="teams_source" class="form-control form-control-sm font-monospace"
+                 placeholder="+3227001234 or user@tenant.com"
+                 oninput="validateSource('teams')">
+          <div class="form-text small">E.164 number, extension, or UPN / email</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Forward To <span class="text-danger">*</span></label>
+          <input type="text" id="teams_fwd_to" class="form-control form-control-sm font-monospace"
+                 placeholder="+3227009999 or 1001">
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <button class="btn btn-sm btn-success flex-fill" onclick="doForward('teams','enable')">
+            <i class="bi bi-telephone-forward me-1"></i>Enable
+          </button>
+          <button class="btn btn-sm btn-outline-danger flex-fill" onclick="doForward('teams','disable')">
+            <i class="bi bi-x-circle me-1"></i>Disable
+          </button>
+        </div>
+        <div id="teams_result" class="mt-2" style="display:none;font-size:.82rem;"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if has_webex and (current_user.is_admin() or current_user.user_platform == 'webex') %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card forward-card h-100">
+      <div class="card-header d-flex align-items-center gap-2" style="background:linear-gradient(135deg,#007FA3,#00BCEB);color:#fff;">
+        <i class="bi bi-telephone fs-5"></i>
+        <span class="fw-semibold">Webex Calling</span>
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          Enter the Webex user's phone number, extension, or email address.
+        </p>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">User Number / Email <span class="text-danger">*</span></label>
+          <input type="text" id="webex_source" class="form-control form-control-sm font-monospace"
+                 placeholder="+3227001234 or user@company.com">
+          <div class="form-text small">E.164 number, extension, or Webex email</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Forward To <span class="text-danger">*</span></label>
+          <input type="text" id="webex_fwd_to" class="form-control form-control-sm font-monospace"
+                 placeholder="+3227009999 or 1001">
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <button class="btn btn-sm btn-success flex-fill" onclick="doForward('webex','enable')">
+            <i class="bi bi-telephone-forward me-1"></i>Enable
+          </button>
+          <button class="btn btn-sm btn-outline-danger flex-fill" onclick="doForward('webex','disable')">
+            <i class="bi bi-x-circle me-1"></i>Disable
+          </button>
+        </div>
+        <div id="webex_result" class="mt-2" style="display:none;font-size:.82rem;"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if has_cucm and (current_user.is_admin() or current_user.user_platform == 'cucm') %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card forward-card h-100">
+      <div class="card-header d-flex align-items-center gap-2" style="background:linear-gradient(135deg,#0369A1,#049fd9);color:#fff;">
+        <i class="bi bi-hdd-network fs-5"></i>
+        <span class="fw-semibold">Cisco CUCM</span>
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          Enter the CUCM user's directory number or user ID.
+        </p>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">DN / Extension / User ID <span class="text-danger">*</span></label>
+          <input type="text" id="cucm_source" class="form-control form-control-sm font-monospace"
+                 placeholder="1001 or jsmith">
+          <div class="form-text small">Directory number, extension, or CUCM user ID</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Forward To <span class="text-danger">*</span></label>
+          <input type="text" id="cucm_fwd_to" class="form-control form-control-sm font-monospace"
+                 placeholder="+3227009999 or 1001">
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <button class="btn btn-sm btn-success flex-fill" onclick="doForward('cucm','enable')">
+            <i class="bi bi-telephone-forward me-1"></i>Enable CFA
+          </button>
+          <button class="btn btn-sm btn-outline-danger flex-fill" onclick="doForward('cucm','disable')">
+            <i class="bi bi-x-circle me-1"></i>Clear CFA
+          </button>
+        </div>
+        <div id="cucm_result" class="mt-2" style="display:none;font-size:.82rem;"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="alert alert-info small mt-4 py-2">
+  <i class="bi bi-info-circle me-2"></i>
+  <strong>Tip:</strong> For Teams, if the number cannot be resolved automatically, also try entering the
+  user's UPN (e.g. <code>user@tenant.com</code>) instead of the number.
+  For CUCM, enter the <strong>user ID</strong> (e.g. <code>jsmith</code>) for best results.
+  The platform Lookup pages show both number and user ID together.
+</div>
+
+{# ═══ REGULAR USER VIEW ════════════════════════════════════════════════════ #}
+{% else %}
+
+{% if identity_error %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  {{ identity_error }}
+  <br><small class="text-muted mt-1 d-block">Contact your administrator to assign your platform extension in Admin → Users.</small>
+</div>
+{% else %}
+
+{% set plat = user_platform or 'teams' %}
+{% if plat == 'teams' %}
+  {% set plat_colour = '#6264A7' %}{% set plat_label = 'Microsoft Teams' %}{% set plat_icon = 'bi-microsoft-teams' %}
+{% elif plat == 'webex' %}
+  {% set plat_colour = '#00BCEB' %}{% set plat_label = 'Webex Calling' %}{% set plat_icon = 'bi-telephone' %}
+{% else %}
+  {% set plat_colour = '#049fd9' %}{% set plat_label = 'Cisco CUCM' %}{% set plat_icon = 'bi-hdd-network' %}
+{% endif %}
+
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="card forward-card">
+      <div class="card-header d-flex align-items-center justify-content-between"
+           style="background:linear-gradient(135deg,{{ plat_colour }},{{ plat_colour }}cc);color:#fff;">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi {{ plat_icon }} fs-5"></i>
+          <span class="fw-semibold">{{ plat_label }}</span>
+        </div>
+        <span class="badge bg-white" style="color:{{ plat_colour }};font-size:.72rem;">
+          {{ user_upn or 'My Extension' }}
+        </span>
+      </div>
+      <div class="card-body">
+
+        {# Live status panel #}
+        <div id="status-panel" class="rounded p-3 mb-3 text-center" style="background:#f8fafc;border:1px solid #e2e8f0;">
+          <div id="status-loading" class="text-muted small">
+            <span class="spinner-border spinner-border-sm me-1"></span>Loading status…
+          </div>
+          <div id="status-content" style="display:none;">
+            <div id="status-badge" class="mb-1"></div>
+            <div id="status-dest" class="small text-muted"></div>
+          </div>
+        </div>
+
+        {# Enable form #}
+        <form method="POST" action="{{ url_for('schedule.toggle') }}" id="enable-form">
+          <input type="hidden" name="enabled" value="1">
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Forward To (E.164 / Extension) <span class="text-danger">*</span></label>
+            <input type="text" name="forward_to" id="fwd_to_input"
+                   class="form-control font-monospace"
+                   placeholder="+3227009999 or 1001" required>
+            <div class="form-text small">External: E.164 format (+3227...) · Internal: extension (1001)</div>
+          </div>
+          <button type="submit" class="btn btn-success w-100 mb-2">
+            <i class="bi bi-telephone-forward me-1"></i>Enable Forwarding
+          </button>
+        </form>
+
+        {# Disable form #}
+        <form method="POST" action="{{ url_for('schedule.toggle') }}">
+          <input type="hidden" name="enabled" value="0">
+          <button type="submit" class="btn btn-outline-danger w-100">
+            <i class="bi bi-x-circle me-1"></i>Disable Forwarding
+          </button>
+        </form>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Admin/superuser: forward any number ──────────────────────
+function doForward(platform, action) {
+  const sourceInput = document.getElementById(platform + '_source');
+  const fwdInput    = document.getElementById(platform + '_fwd_to');
+  const resultDiv   = document.getElementById(platform + '_result');
+  const source = (sourceInput ? sourceInput.value.trim() : '');
+  const fwdTo  = (fwdInput  ? fwdInput.value.trim()   : '');
+
+  if (!source) {
+    sourceInput.classList.add('is-invalid');
+    sourceInput.focus();
+    return;
+  }
+  if (action === 'enable' && !fwdTo) {
+    fwdInput.classList.add('is-invalid');
+    fwdInput.focus();
+    return;
+  }
+  sourceInput.classList.remove('is-invalid');
+  if (fwdInput) fwdInput.classList.remove('is-invalid');
+
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing…';
+
+  // Decide if source looks like a number or a UPN/email
+  const isNumber = /^[+\d\s\-()]{4,}$/.test(source);
+  const body = new URLSearchParams({
+    platform,
+    forward_to:    fwdTo,
+    enabled:       action === 'enable' ? '1' : '0',
+    source_number: isNumber ? source : '',
+    user_upn:      isNumber ? '' : source,
+    user_id:       '',
+  });
+
+  fetch('/schedule/forward', { method: 'POST', body })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        resultDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>' +
+          esc(d.message) +
+          (d.resolved_upn ? '<br><small class="text-muted">Resolved: ' + esc(d.resolved_upn) + '</small>' : '') +
+          '</span>';
+      } else {
+        resultDiv.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>' + esc(d.error || d.message) + '</span>';
+      }
+    })
+    .catch(e => {
+      resultDiv.innerHTML = '<span class="text-danger">Request failed: ' + esc(String(e)) + '</span>';
+    });
+}
+
+// ── Regular user: load live status ───────────────────────────
+{% if not current_user.can_manage_others() and not identity_error %}
+window.addEventListener('DOMContentLoaded', () => {
+  fetch('/schedule/api-status')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('status-loading').style.display = 'none';
+      document.getElementById('status-content').style.display = 'block';
+      if (d.error) {
+        document.getElementById('status-badge').innerHTML =
+          '<span class="badge bg-warning text-dark">Unknown</span>';
+        document.getElementById('status-dest').textContent = d.error;
+        return;
+      }
+      if (d.enabled) {
+        document.getElementById('status-badge').innerHTML =
+          '<span class="badge bg-success fs-6 px-3">Forwarding ON</span>';
+        document.getElementById('status-dest').textContent =
+          '→ ' + (d.destination || d.target || '');
+        // Pre-fill forward_to with current destination
+        const inp = document.getElementById('fwd_to_input');
+        if (inp && (d.destination || d.target)) {
+          inp.value = d.destination || d.target;
+        }
+      } else {
+        document.getElementById('status-badge').innerHTML =
+          '<span class="badge bg-secondary fs-6 px-3">Forwarding OFF</span>';
+        document.getElementById('status-dest').textContent = 'No active forwarding';
+      }
+    })
+    .catch(() => {
+      document.getElementById('status-loading').style.display = 'none';
+      document.getElementById('status-content').style.display = 'block';
+      document.getElementById('status-badge').innerHTML =
+        '<span class="badge bg-light text-dark">Status unavailable</span>';
+    });
+});
+{% endif %}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}

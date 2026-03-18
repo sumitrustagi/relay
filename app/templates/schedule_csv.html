@@ -1,0 +1,612 @@
+{% extends "base.html" %}
+{% block title %}Schedules — RELAY{% endblock %}
+
+{% block extra_head %}
+<style>
+.plat-teams { background:#6264A7; color:#fff; }
+.plat-webex { background:#00BCEB; color:#000; }
+.plat-cucm  { background:#049fd9; color:#fff; }
+.user-lookup-result {
+  border:0.5px solid var(--color-border-secondary);
+  border-radius:8px; max-height:200px; overflow-y:auto;
+  background:var(--color-background-primary); position:absolute; z-index:999;
+  width:100%; box-shadow:0 4px 16px rgba(0,0,0,.1);
+}
+.lookup-item {
+  padding:7px 10px; cursor:pointer; font-size:.82rem;
+  border-bottom:0.5px solid var(--color-border-tertiary);
+}
+.lookup-item:hover { background:var(--color-background-secondary); }
+.lookup-item:last-child { border-bottom:none; }
+</style>
+{% endblock %}
+
+{% block content_auth %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h5 class="mb-0"><i class="bi bi-calendar2-week me-2 text-primary"></i>Call Forwarding Schedules</h5>
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-sm btn-navy" data-bs-toggle="modal" data-bs-target="#addTWModal">
+      <i class="bi bi-plus-circle me-1"></i>Add Rule
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addScheduleModal">
+      <i class="bi bi-calendar-event me-1"></i>One-Shot
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+      <i class="bi bi-upload me-1"></i>CSV Upload
+    </button>
+    <a href="{{ url_for('schedule_csv.download_template') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-download me-1"></i>Template
+    </a>
+  </div>
+</div>
+
+{# ── Stat cards ── #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#6264A7,#4a4c89);">
+        <i class="bi bi-clock-history text-white"></i>
+      </div>
+      <div><div class="stat-val">{{ tw_rules|length }}</div><div class="stat-lbl">Recurring Rules</div></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#16a34a,#15803d);">
+        <i class="bi bi-check-circle text-white"></i>
+      </div>
+      <div>
+        <div class="stat-val" style="color:#16a34a;">{{ tw_rules|selectattr('cf_active')|list|length }}</div>
+        <div class="stat-lbl">Active Now</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#0369a1,#0284c7);">
+        <i class="bi bi-calendar-event text-white"></i>
+      </div>
+      <div><div class="stat-val">{{ schedules|length }}</div><div class="stat-lbl">One-Shot</div></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:linear-gradient(135deg,#9a3412,#c2410c);">
+        <i class="bi bi-exclamation-triangle text-white"></i>
+      </div>
+      <div>
+        <div class="stat-val" style="color:#9a3412;">
+          {{ schedules|selectattr('deactivated')|list|length }}
+        </div>
+        <div class="stat-lbl">Completed</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Recurring time-window rules ── #}
+<div class="card mb-4">
+  <div class="card-header navy d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-clock-history me-2"></i>Recurring Time-Window Rules</span>
+    <span class="badge bg-light text-dark">{{ tw_rules|length }}</span>
+  </div>
+  {% if tw_rules %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th>Name</th>
+          <th>Platform</th>
+          <th>User</th>
+          <th>Days</th>
+          <th>Window</th>
+          <th>Forward to</th>
+          <th>Status</th>
+          <th>Last action</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in tw_rules %}
+        <tr>
+          <td class="fw-semibold">{{ r.name }}</td>
+          <td>
+            <span class="badge plat-{{ r.platform or 'teams' }}" style="font-size:.7rem;">
+              {{ (r.platform or 'teams').title() }}
+            </span>
+          </td>
+          <td class="small">
+            <div class="font-monospace">{{ r.user_upn or r.teams_upn or '—' }}</div>
+            {% if r.display_name %}
+            <div class="text-muted" style="font-size:.75rem;">{{ r.display_name }}</div>
+            {% endif %}
+          </td>
+          <td class="small">{{ r.days }}</td>
+          <td class="font-monospace small">{{ r.start_time }}–{{ r.end_time }}</td>
+          <td class="font-monospace small">{{ r.forward_to }}</td>
+          <td>
+            {% if r.cf_active %}
+              <span class="badge bg-success">Active</span>
+            {% elif r.is_enabled %}
+              <span class="badge bg-secondary">Waiting</span>
+            {% else %}
+              <span class="badge bg-light text-dark">Disabled</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+              title="{{ r.last_action or '' }}">
+            {{ r.last_action or '—' }}
+          </td>
+          <td class="text-end" style="white-space:nowrap;">
+            <form method="POST" action="{{ url_for('schedule_csv.toggle_tw', tid=r.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-xs {{ 'btn-outline-warning' if r.is_enabled else 'btn-outline-success' }}"
+                      style="font-size:.72rem;padding:1px 6px;">
+                {{ 'Disable' if r.is_enabled else 'Enable' }}
+              </button>
+            </form>
+            <form method="POST" action="{{ url_for('schedule_csv.delete_tw', tid=r.id) }}" class="d-inline"
+                  onsubmit="return confirm('Delete rule {{ r.name }}?')">
+              <button class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:1px 5px;">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-clock-history fs-3 d-block mb-2 opacity-25"></i>
+    No recurring rules yet. Click <strong>Add Rule</strong> to create one.
+  </div>
+  {% endif %}
+</div>
+
+{# ── One-shot schedules ── #}
+<div class="card mb-4">
+  <div class="card-header navy d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-calendar-event me-2"></i>One-Shot Schedules</span>
+    <span class="badge bg-light text-dark">{{ schedules|length }}</span>
+  </div>
+  {% if schedules %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th>Name</th>
+          <th>Platform</th>
+          <th>User</th>
+          <th>Forward to</th>
+          <th>Activate at</th>
+          <th>Deactivate at</th>
+          <th>State</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in schedules %}
+        <tr>
+          <td class="fw-semibold">{{ s.name }}</td>
+          <td>
+            <span class="badge plat-{{ s.platform or 'teams' }}" style="font-size:.7rem;">
+              {{ (s.platform or 'teams').title() }}
+            </span>
+          </td>
+          <td class="small">
+            <div class="font-monospace">{{ s.user_upn or s.teams_upn or '—' }}</div>
+            {% if s.display_name %}
+            <div class="text-muted" style="font-size:.75rem;">{{ s.display_name }}</div>
+            {% endif %}
+          </td>
+          <td class="font-monospace small">{{ s.forward_to }}</td>
+          <td class="font-monospace small">{{ s.activate_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td class="font-monospace small text-muted">
+            {{ s.deactivate_at.strftime('%Y-%m-%d %H:%M') if s.deactivate_at else '—' }}
+          </td>
+          <td>
+            {% if s.deactivated %}
+              <span class="badge bg-secondary">Done</span>
+            {% elif s.activated %}
+              <span class="badge bg-success">Forwarding</span>
+            {% elif s.is_active %}
+              <span class="badge bg-info text-dark">Scheduled</span>
+            {% else %}
+              <span class="badge bg-light text-dark">Inactive</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            <form method="POST" action="{{ url_for('schedule_csv.delete_schedule', sid=s.id) }}" class="d-inline"
+                  onsubmit="return confirm('Delete schedule {{ s.name }}?')">
+              <button class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:1px 5px;">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-calendar-x fs-3 d-block mb-2 opacity-25"></i>
+    No one-shot schedules yet. Click <strong>One-Shot</strong> to create one.
+  </div>
+  {% endif %}
+</div>
+
+{# ════════ MODALS ════════ #}
+
+{# ── Add Recurring Rule ── #}
+<div class="modal fade" id="addTWModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header navy">
+        <h6 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Recurring Rule</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('schedule_csv.add_tw') }}">
+        <div class="modal-body row g-3">
+
+          {# Platform selector (only for manage-others users) #}
+          {% if current_user.is_admin() %}
+          {# Admin: full platform dropdown — can target any platform #}
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Platform <span class="text-danger">*</span></label>
+            <select name="platform" id="tw_platform" class="form-select form-select-sm">
+              {% if has_teams %}<option value="teams" selected>Microsoft Teams</option>{% endif %}
+              {% if has_webex %}<option value="webex">Webex Calling</option>{% endif %}
+              {% if has_cucm  %}<option value="cucm">Cisco CUCM</option>{% endif %}
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label fw-semibold small">
+              User — Phone Number, UPN, or Extension <span class="text-danger">*</span>
+            </label>
+            <input type="text" name="user_upn" id="tw_user_upn"
+                   class="form-control form-control-sm font-monospace"
+                   placeholder="+3227001234 or user@company.com or userid"
+                   required autocomplete="off">
+            <div class="form-text small">Enter the number, UPN, email, or user ID directly</div>
+          </div>
+          <input type="hidden" name="user_id"      value="">
+          <input type="hidden" name="display_name" value="">
+          {% elif current_user.is_superuser() %}
+          {# Superuser: platform locked to their own user_platform — can target any user on that platform #}
+          <input type="hidden" name="platform" value="{{ current_user.user_platform or 'teams' }}">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Platform</label>
+            <div class="form-control form-control-sm bg-light text-muted">
+              {{ {'teams':'Microsoft Teams','webex':'Webex Calling','cucm':'Cisco CUCM'}.get(current_user.user_platform, current_user.user_platform or 'teams') }}
+            </div>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label fw-semibold small">
+              User — Phone Number, UPN, or Extension <span class="text-danger">*</span>
+            </label>
+            <input type="text" name="user_upn" id="tw_user_upn"
+                   class="form-control form-control-sm font-monospace"
+                   placeholder="+3227001234 or user@company.com or userid"
+                   required autocomplete="off">
+            <div class="form-text small">Any user on your platform ({{ current_user.user_platform or 'teams' }})</div>
+          </div>
+          <input type="hidden" name="user_id"      value="">
+          <input type="hidden" name="display_name" value="">
+          {% else %}
+          {# Regular user: locked to own identity and own platform #}
+          <input type="hidden" name="platform"     value="{{ current_user.user_platform or 'teams' }}">
+          <input type="hidden" name="user_upn"     value="{{ current_user.teams_upn or current_user.webex_extension or current_user.cucm_extension or '' }}">
+          <input type="hidden" name="user_id"      value="">
+          <input type="hidden" name="display_name" value="{{ current_user.display_name or current_user.username }}">
+          <div class="col-12">
+            <div class="alert alert-info py-2 small mb-0">
+              <i class="bi bi-person-check me-1"></i>
+              Creating rule for your own extension:
+              <strong>{{ current_user.teams_upn or current_user.webex_extension or current_user.cucm_extension or current_user.username }}</strong>
+              ({{ current_user.user_platform or 'teams' }})
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Rule Name</label>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. After Hours Cover">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Forward To (E.164 / Extension) <span class="text-danger">*</span></label>
+            <input type="text" name="forward_to" class="form-control form-control-sm font-monospace"
+                   placeholder="+3227001234 or 1001" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Start Time</label>
+            <input type="time" name="start_time" class="form-control form-control-sm" value="18:00">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">End Time</label>
+            <input type="time" name="end_time" class="form-control form-control-sm" value="08:00">
+            <div class="form-text small">Overnight windows supported (e.g. 18:00–08:00)</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Note</label>
+            <input type="text" name="note" class="form-control form-control-sm">
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold small">Days</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+              <div class="form-check form-check-inline mb-0">
+                <input type="checkbox" name="days" value="{{ d }}" class="form-check-input" id="tw_{{ d }}"
+                       {{ 'checked' if d not in ['Sat','Sun'] }}>
+                <label class="form-check-label small" for="tw_{{ d }}">{{ d }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-plus me-1"></i>Create Rule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── Add One-Shot Schedule ── #}
+<div class="modal fade" id="addScheduleModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header navy">
+        <h6 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>New One-Shot Schedule</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('schedule_csv.add_schedule') }}">
+        <div class="modal-body row g-3">
+
+          {% if current_user.is_admin() %}
+          {# Admin: full platform dropdown #}
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Platform <span class="text-danger">*</span></label>
+            <select name="platform" id="os_platform" class="form-select form-select-sm">
+              {% if has_teams %}<option value="teams" selected>Microsoft Teams</option>{% endif %}
+              {% if has_webex %}<option value="webex">Webex Calling</option>{% endif %}
+              {% if has_cucm  %}<option value="cucm">Cisco CUCM</option>{% endif %}
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label fw-semibold small">
+              User — Phone Number, UPN, or Extension <span class="text-danger">*</span>
+            </label>
+            <input type="text" name="user_upn" id="os_user_upn"
+                   class="form-control form-control-sm font-monospace"
+                   placeholder="+3227001234 or user@company.com or userid"
+                   required autocomplete="off">
+            <div class="form-text small">Enter the number, UPN, email, or user ID directly</div>
+          </div>
+          <input type="hidden" name="user_id"      value="">
+          <input type="hidden" name="display_name" value="">
+          {% elif current_user.is_superuser() %}
+          {# Superuser: platform locked to their own user_platform #}
+          <input type="hidden" name="platform" value="{{ current_user.user_platform or 'teams' }}">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold small">Platform</label>
+            <div class="form-control form-control-sm bg-light text-muted">
+              {{ {'teams':'Microsoft Teams','webex':'Webex Calling','cucm':'Cisco CUCM'}.get(current_user.user_platform, current_user.user_platform or 'teams') }}
+            </div>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label fw-semibold small">
+              User — Phone Number, UPN, or Extension <span class="text-danger">*</span>
+            </label>
+            <input type="text" name="user_upn" id="os_user_upn"
+                   class="form-control form-control-sm font-monospace"
+                   placeholder="+3227001234 or user@company.com or userid"
+                   required autocomplete="off">
+            <div class="form-text small">Any user on your platform ({{ current_user.user_platform or 'teams' }})</div>
+          </div>
+          <input type="hidden" name="user_id"      value="">
+          <input type="hidden" name="display_name" value="">
+          {% else %}
+          {# Regular user: locked to own identity #}
+          <input type="hidden" name="platform"     value="{{ current_user.user_platform or 'teams' }}">
+          <input type="hidden" name="user_upn"     value="{{ current_user.teams_upn or current_user.webex_extension or current_user.cucm_extension or '' }}">
+          <input type="hidden" name="user_id"      value="">
+          <input type="hidden" name="display_name" value="{{ current_user.display_name or current_user.username }}">
+          <div class="col-12">
+            <div class="alert alert-info py-2 small mb-0">
+              <i class="bi bi-person-check me-1"></i>
+              Scheduling for your own extension:
+              <strong>{{ current_user.teams_upn or current_user.webex_extension or current_user.cucm_extension or current_user.username }}</strong>
+              ({{ current_user.user_platform or 'teams' }})
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="col-12">
+            <label class="form-label fw-semibold small">Name</label>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Bank Holiday Cover">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Forward To (E.164 / Extension) <span class="text-danger">*</span></label>
+            <input type="text" name="forward_to" class="form-control form-control-sm font-monospace"
+                   placeholder="+3227001234 or 1001" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Note</label>
+            <input type="text" name="note" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Activate At (UTC) <span class="text-danger">*</span></label>
+            <input type="datetime-local" name="activate_at" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Deactivate At (UTC)</label>
+            <input type="datetime-local" name="deactivate_at" class="form-control form-control-sm">
+            <div class="form-text small">Leave blank to forward indefinitely.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-calendar-check me-1"></i>Schedule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── CSV Upload (all users — regular users locked to own extension) ── #}
+<div class="modal fade" id="uploadModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header navy">
+        <h6 class="modal-title"><i class="bi bi-upload me-2"></i>Bulk CSV Upload</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if current_user.can_manage_others() %}
+        <p class="small text-muted mb-2">
+          Upload a CSV to create multiple one-shot schedules for any user on any platform.<br>
+          <strong>Required columns:</strong> <code>platform, user_upn, forward_to, activate_at</code><br>
+          <strong>Optional:</strong> <code>name, user_id, display_name, deactivate_at, note</code>
+        </p>
+        {% else %}
+        <div class="alert alert-info py-2 small mb-3">
+          <i class="bi bi-person-lock me-1"></i>
+          <strong>Your extension only.</strong>
+          The <code>user_upn</code> and <code>platform</code> columns are ignored —
+          all imported schedules will be forwarded on your own account
+          (<strong>{{ current_user.teams_upn or current_user.webex_extension or current_user.cucm_extension or 'no extension set' }}</strong>).
+        </div>
+        <p class="small text-muted mb-2">
+          <strong>Required columns:</strong> <code>forward_to, activate_at</code><br>
+          <strong>Optional:</strong> <code>name, deactivate_at, note</code>
+        </p>
+        {% endif %}
+        <form method="POST" action="{{ url_for('schedule_csv.upload_csv') }}" enctype="multipart/form-data">
+          <div class="mb-3">
+            <input type="file" name="csv_file" class="form-control form-control-sm" accept=".csv" required>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-navy"><i class="bi bi-upload me-1"></i>Import</button>
+            <a href="{{ url_for('schedule_csv.download_template') }}" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-download me-1"></i>Template
+            </a>
+          </div>
+        </form>
+        <div class="mt-3 p-2 bg-light rounded small font-monospace text-muted" style="font-size:.72rem;">
+          activate_at format: <strong>YYYY-MM-DDTHH:MM</strong> (UTC) e.g. 2026-12-24T16:00
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const HAS_TEAMS = {{ 'true' if has_teams else 'false' }};
+const HAS_WEBEX = {{ 'true' if has_webex else 'false' }};
+const HAS_CUCM  = {{ 'true' if has_cucm  else 'false' }};
+
+const LOOKUP_URLS = {
+  teams: '/extension/lookup?q=',
+  webex: '/webex/lookup?q=',
+  cucm:  '/cucm/lookup?q=',
+};
+
+const USER_HINTS = {
+  teams: 'UPN (user@tenant.com) or display name',
+  webex: 'Email or display name',
+  cucm:  'UserID or first/last name',
+};
+
+let searchTimers = {};
+
+function updateUserLookup(prefix) {
+  const plat  = document.getElementById(prefix + '_platform').value;
+  const hint  = document.getElementById(prefix + '_user_hint');
+  const input = document.getElementById(prefix + '_user_search');
+  if (hint)  hint.textContent = '(' + (USER_HINTS[plat] || '') + ')';
+  if (input) { input.value = ''; input.placeholder = 'Type to search ' + plat + ' users…'; }
+  clearSelectedUser(prefix);
+}
+
+function clearSelectedUser(prefix) {
+  ['user_upn','user_id','display_name'].forEach(f => {
+    const el = document.getElementById(prefix + '_' + f);
+    if (el) el.value = '';
+  });
+  const sel = document.getElementById(prefix + '_user_selected');
+  if (sel) sel.textContent = '';
+  const res = document.getElementById(prefix + '_lookup_results');
+  if (res) res.style.display = 'none';
+}
+
+function searchUser(prefix, query) {
+  clearTimeout(searchTimers[prefix]);
+  if (query.length < 2) {
+    const res = document.getElementById(prefix + '_lookup_results');
+    if (res) res.style.display = 'none';
+    return;
+  }
+  searchTimers[prefix] = setTimeout(() => {
+    const platEl = document.getElementById(prefix + '_platform');
+    const plat   = platEl ? platEl.value : 'teams';
+    const url    = (LOOKUP_URLS[plat] || '/extension/lookup?q=') + encodeURIComponent(query);
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        const res = document.getElementById(prefix + '_lookup_results');
+        if (!data || data.error || !data.length) {
+          res.style.display = 'none'; return;
+        }
+        res.innerHTML = '';
+        data.slice(0, 8).forEach(u => {
+          const div = document.createElement('div');
+          div.className = 'lookup-item';
+          const name  = u.displayName || u.firstName && (u.firstName + ' ' + u.lastName) || '';
+          const upn   = u.upn || u.email || u.userid || '';
+          const phone = (u.phones || [u.extension || u.primaryNumber || '']).filter(Boolean)[0] || '';
+          div.innerHTML = `<div class="fw-semibold">${esc(name)}</div>
+                           <div class="text-muted font-monospace" style="font-size:.72rem;">${esc(upn)}
+                           ${phone ? ' · ' + esc(phone) : ''}</div>`;
+          div.onclick = () => selectUser(prefix, u, name, upn);
+          res.appendChild(div);
+        });
+        res.style.display = 'block';
+      })
+      .catch(() => {});
+  }, 280);
+}
+
+function selectUser(prefix, u, name, upn) {
+  document.getElementById(prefix + '_user_upn').value     = upn || u.upn || u.email || u.userid || '';
+  document.getElementById(prefix + '_user_id').value      = u.id || u.personId || '';
+  document.getElementById(prefix + '_display_name').value = name || '';
+  document.getElementById(prefix + '_user_search').value  = name + (upn ? ' (' + upn + ')' : '');
+  const sel = document.getElementById(prefix + '_user_selected');
+  if (sel) sel.textContent = '✓ Selected: ' + name;
+  const res = document.getElementById(prefix + '_lookup_results');
+  if (res) res.style.display = 'none';
+}
+
+// Close dropdowns on outside click
+document.addEventListener('click', e => {
+  ['tw','os'].forEach(prefix => {
+    const res   = document.getElementById(prefix + '_lookup_results');
+    const input = document.getElementById(prefix + '_user_search');
+    if (res && input && !input.contains(e.target) && !res.contains(e.target)) {
+      res.style.display = 'none';
+    }
+  });
+});
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}

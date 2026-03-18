@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}CUCM Lookup — RELAY{% endblock %}
+{% block content_auth %}
+
+<div class="page-header">
+  <div>
+    <h5><i class="bi bi-search me-2" style="color:#049fd9;"></i>Cisco CUCM — User Lookup
+      {% if current_user.can_manage_others() %}
+        <span class="badge ms-1" style="background:#049fd9;color:#fff;font-size:.68rem;">Forwarding</span>
+      {% endif %}
+    </h5>
+    <p class="text-muted small mb-0">
+      {% if current_user.can_manage_others() %}
+        Searches the CUCM AXL directory and enables Call Forward All per user.
+      {% else %}
+        Showing your CUCM extension only.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="input-group">
+      <span class="input-group-text bg-light"><i class="bi bi-search"></i></span>
+      <input type="text" id="searchInput" class="form-control"
+             placeholder="{% if current_user.can_manage_others() %}Search by user ID, first or last name…{% else %}Your CUCM user ID{% endif %}"
+             autocomplete="off">
+      <button class="btn fw-semibold text-white" style="background:#049fd9;" onclick="doSearch()">Search</button>
+    </div>
+    <div class="form-text">Queries CUCM via AXL — requires CUCM configured in Admin.</div>
+  </div>
+</div>
+
+<div id="spinner" class="text-center py-4" style="display:none;">
+  <div class="spinner-border" style="color:#049fd9;"></div>
+  <div class="text-muted small mt-2">Searching CUCM directory…</div>
+</div>
+
+<div id="error-box" class="alert alert-danger py-2 small" style="display:none;"></div>
+
+<div id="results-section" style="display:none;">
+  <div class="fw-semibold mb-2" id="result-count"></div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>User ID</th>
+          <th>Full Name</th>
+          <th>Extension (DN)</th>
+          <th>Phone Number</th>
+          <th>Department</th>
+          <th>Forward to</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="no-results" class="card" style="display:none;">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-person-x fs-3 d-block mb-2"></i>No CUCM users found.
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CAN_MANAGE = {{ 'true' if current_user.can_manage_others() else 'false' }};
+const OWN_USERID = {{ ('"' ~ (current_user.teams_upn or '') ~ '"') | safe }};
+
+function doSearch() {
+  const q = document.getElementById("searchInput").value.trim();
+  if (q.length < 1) return;
+  document.getElementById("spinner").style.display = "block";
+  document.getElementById("error-box").style.display = "none";
+  document.getElementById("results-section").style.display = "none";
+  document.getElementById("no-results").style.display = "none";
+
+  fetch("/cucm/lookup?q=" + encodeURIComponent(q))
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById("spinner").style.display = "none";
+      if (!data || data.error) {
+        document.getElementById("error-box").textContent = data ? data.error : "Request failed";
+        document.getElementById("error-box").style.display = "block";
+        return;
+      }
+      if (!data.length) { document.getElementById("no-results").style.display = "block"; return; }
+
+      document.getElementById("result-count").textContent = data.length + " result(s)";
+      const tbody = document.getElementById("results-body");
+      tbody.innerHTML = "";
+      data.forEach(u => {
+        const userid = u.userid || u.upn || "";
+        const fwdId  = "cucm_fwd_" + userid.replace(/[^a-z0-9]/gi,"_");
+        const showFwd = CAN_MANAGE || userid.toLowerCase() === OWN_USERID.toLowerCase();
+        tbody.innerHTML += `
+          <tr>
+            <td class="font-monospace fw-semibold">${esc(userid)}</td>
+            <td>${esc(u.displayName || u.firstName + " " + u.lastName || "—")}</td>
+            <td class="font-monospace small">${esc(u.extension || "—")}</td>
+            <td class="font-monospace small">${esc((u.phones||[])[0] || "—")}</td>
+            <td class="small text-muted">${esc(u.department || "—")}</td>
+            <td style="min-width:160px;">
+              ${showFwd
+                ? `<input type="text" id="${fwdId}" class="form-control form-control-sm font-monospace" placeholder="+3227009999 or 1001">`
+                : '<span class="text-muted small">—</span>'}
+            </td>
+            <td class="text-end" style="white-space:nowrap;">
+              ${showFwd ? `
+                <button class="btn btn-sm btn-success py-0 px-2" style="font-size:.78rem;"
+                        onclick="doForward('${esc(userid)}','${fwdId}','enable')">
+                  <i class="bi bi-telephone-forward me-1"></i>Enable CFA
+                </button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-2 ms-1" style="font-size:.78rem;"
+                        onclick="doForward('${esc(userid)}','${fwdId}','disable')">
+                  <i class="bi bi-x-lg me-1"></i>Clear
+                </button>
+              ` : `<span class="badge bg-secondary" style="font-size:.7rem;">no access</span>`}
+            </td>
+          </tr>`;
+      });
+      document.getElementById("results-section").style.display = "block";
+    })
+    .catch(e => {
+      document.getElementById("spinner").style.display = "none";
+      document.getElementById("error-box").textContent = "Request failed: " + e;
+      document.getElementById("error-box").style.display = "block";
+    });
+}
+
+function doForward(userid, fwdId, action) {
+  const fwdInput = document.getElementById(fwdId);
+  const fwdTo    = fwdInput ? fwdInput.value.trim() : "";
+  if (action === "enable" && !fwdTo) {
+    if (fwdInput) { fwdInput.classList.add("is-invalid"); fwdInput.focus(); }
+    return;
+  }
+  if (fwdInput) fwdInput.classList.remove("is-invalid");
+
+  const body = new URLSearchParams({
+    userid:     userid,
+    forward_to: fwdTo,
+    action:     action,
+  });
+  fetch("/cucm/forward", { method: "POST", body })
+    .then(r => r.json())
+    .then(d => showToast(d.ok ? "success" : "danger", d.message || d.error || "Unknown"))
+    .catch(e => showToast("danger", "Request failed: " + e));
+}
+
+function showToast(type, msg) {
+  const t = document.createElement("div");
+  t.className = `alert alert-${type} py-2 small position-fixed bottom-0 end-0 m-3`;
+  t.style.zIndex = "9999";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+function esc(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+document.getElementById("searchInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") doSearch();
+});
+</script>
+{% endblock %}

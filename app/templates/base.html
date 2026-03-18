@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}RELAY{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root {
+      --navy:  #003366; --navy-light: #004080; --navy-dark: #002244;
+      --teal:  #00BCEB; --teams: #6264A7; --cucm: #049fd9;
+      --green: #1a9e5c; --amber: #f59e0b; --red: #dc2626;
+      --sidebar-w: 250px;
+    }
+
+    /* ── Reset & body ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body { min-height:100vh; background:#f0f2f7; font-family:'Segoe UI',system-ui,sans-serif; display:flex; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-w); min-height:100vh; flex-shrink:0;
+      background: linear-gradient(180deg, var(--navy-dark) 0%, var(--navy) 60%, #004080 100%);
+      color:#fff; display:flex; flex-direction:column;
+      position:sticky; top:0; height:100vh; overflow-y:auto;
+      box-shadow: 2px 0 12px rgba(0,0,0,.25);
+    }
+    .sidebar::-webkit-scrollbar { width:4px; }
+    .sidebar::-webkit-scrollbar-thumb { background:rgba(255,255,255,.2); border-radius:4px; }
+
+    .sidebar .brand {
+      padding: 1.1rem 1.1rem .85rem;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.2);
+    }
+    .sidebar .brand .logo-text {
+      font-size:1.55rem; font-weight:800; letter-spacing:.06em;
+      background: linear-gradient(135deg,#fff 30%,var(--teal));
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+      background-clip:text;
+    }
+    .sidebar .brand .client-label {
+      font-size:.68rem; opacity:.55; font-weight:400; margin-top:2px; letter-spacing:.03em;
+      -webkit-text-fill-color: rgba(255,255,255,.55);
+    }
+
+    .sidebar .nav-section {
+      font-size:.6rem; text-transform:uppercase; letter-spacing:.12em;
+      opacity:.45; padding:.9rem 1.1rem .25rem; display:flex; align-items:center; gap:6px;
+    }
+    .sidebar .nav-section::before {
+      content:''; flex:1; height:1px; background:rgba(255,255,255,.1);
+    }
+
+    .sidebar .nav-link {
+      color:rgba(255,255,255,.78); padding:.42rem 1rem;
+      border-radius:8px; margin:.1rem .55rem;
+      font-size:.87rem; display:flex; align-items:center; gap:8px;
+      transition: background .15s, color .15s, transform .1s;
+      text-decoration:none;
+    }
+    .sidebar .nav-link:hover {
+      background:rgba(255,255,255,.13); color:#fff; transform:translateX(2px);
+    }
+    .sidebar .nav-link.active {
+      background: rgba(0,188,235,.22);
+      color:#fff;
+      box-shadow: inset 3px 0 0 var(--teal);
+    }
+    .sidebar .nav-link i { font-size:.95rem; opacity:.85; width:16px; text-align:center; }
+
+    .sidebar .plat-badge {
+      font-size:.58rem; padding:1px 6px; border-radius:10px; margin-left:auto;
+      font-weight:700; letter-spacing:.04em;
+    }
+
+    .sidebar .sidebar-footer {
+      margin-top:auto; padding:.85rem 1rem;
+      border-top:1px solid rgba(255,255,255,.1);
+      background:rgba(0,0,0,.15);
+    }
+    .sidebar .sidebar-footer a {
+      color:rgba(255,255,255,.5); font-size:.8rem; text-decoration:none;
+      display:flex; align-items:center; gap:6px; padding:.3rem .4rem;
+      border-radius:6px; transition:color .15s, background .15s;
+    }
+    .sidebar .sidebar-footer a:hover { color:#fff; background:rgba(255,255,255,.08); }
+
+    /* ── Main content area ── */
+    .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+
+    /* ── Topbar ── */
+    .topbar {
+      background:#fff; padding:.6rem 1.4rem;
+      display:flex; align-items:center; justify-content:space-between;
+      border-bottom:1px solid #e2e8f0;
+      box-shadow:0 1px 6px rgba(0,0,0,.06);
+      position:sticky; top:0; z-index:100;
+    }
+    .topbar .user-chip {
+      display:flex; align-items:center; gap:8px; font-size:.85rem; color:#475569;
+    }
+    .topbar .user-chip .avatar {
+      width:32px; height:32px; border-radius:50%;
+      background:linear-gradient(135deg,var(--navy),var(--teal));
+      display:flex; align-items:center; justify-content:center;
+      color:#fff; font-size:.75rem; font-weight:700;
+    }
+    .topbar .plat-pills { display:flex; gap:6px; }
+    .topbar .plat-pill {
+      font-size:.7rem; border-radius:20px; padding:3px 10px;
+      font-weight:600; letter-spacing:.03em; border:1px solid transparent;
+    }
+
+    /* ── Content ── */
+    .content { padding:1.6rem; flex:1; }
+
+    /* ── Page header style ── */
+    .page-header {
+      margin-bottom:1.5rem;
+      display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;
+    }
+    .page-header h5 { margin:0; font-weight:700; font-size:1.1rem; color:#1e293b; }
+
+    /* ── Cards ── */
+    .card {
+      border:1px solid #e2e8f0; border-radius:12px;
+      box-shadow:0 1px 4px rgba(0,0,0,.05);
+      overflow:hidden;
+    }
+    .card-header {
+      border-bottom:1px solid rgba(255,255,255,.12);
+      font-weight:600; padding:.75rem 1rem;
+    }
+    .card-header.navy { background:linear-gradient(135deg,var(--navy) 0%,var(--navy-light) 100%); color:#fff; }
+    .card-header.teal { background:linear-gradient(135deg,#007fa3 0%,var(--teal) 100%); color:#fff; }
+    .card-header.teams { background:linear-gradient(135deg,#4a4c89 0%,var(--teams) 100%); color:#fff; }
+    .card-header.cucm  { background:linear-gradient(135deg,#0369a1 0%,var(--cucm) 100%); color:#fff; }
+    .card-header.green { background:linear-gradient(135deg,#15803d 0%,var(--green) 100%); color:#fff; }
+
+    /* ── Stat cards ── */
+    .stat-card {
+      background:#fff; border-radius:12px; padding:1.1rem 1rem;
+      border:1px solid #e2e8f0; box-shadow:0 1px 4px rgba(0,0,0,.04);
+      display:flex; align-items:center; gap:.9rem;
+    }
+    .stat-card .stat-icon {
+      width:44px; height:44px; border-radius:10px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:1.2rem; flex-shrink:0;
+    }
+    .stat-card .stat-val { font-size:1.5rem; font-weight:800; line-height:1; color:#1e293b; }
+    .stat-card .stat-lbl { font-size:.74rem; color:#64748b; margin-top:2px; }
+
+    /* ── Risk / status badges ── */
+    .risk-HEALTHY  { background:#dcfce7; color:#166534; }
+    .risk-ATTENTION{ background:#fef9c3; color:#854d0e; }
+    .risk-WARNING  { background:#ffedd5; color:#9a3412; }
+    .risk-CRITICAL { background:#fee2e2; color:#991b1b; }
+    .risk-EXPIRED  { background:#1e293b; color:#f8fafc; }
+    .risk-UNKNOWN  { background:#f1f5f9; color:#64748b; }
+
+    /* ── Tables ── */
+    .table thead th { font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:#64748b; border-bottom:2px solid #e2e8f0; }
+    .table > :not(caption) > * > * { padding:.6rem .85rem; }
+    .table-hover > tbody > tr:hover > * { background:#f8fafc; }
+
+    /* ── Buttons ── */
+    .btn-navy { background:var(--navy); color:#fff; border:none; }
+    .btn-navy:hover { background:var(--navy-light); color:#fff; }
+    .btn-xs { font-size:.72rem; padding:2px 8px; border-radius:5px; }
+
+    /* ── Alerts ── */
+    .alert { border-radius:10px; border:none; }
+    .alert-success { background:#f0fdf4; color:#166534; border-left:4px solid #22c55e; }
+    .alert-danger  { background:#fef2f2; color:#991b1b; border-left:4px solid #ef4444; }
+    .alert-warning { background:#fffbeb; color:#92400e; border-left:4px solid #f59e0b; }
+    .alert-info    { background:#eff6ff; color:#1e40af; border-left:4px solid #3b82f6; }
+
+    /* ── Modals ── */
+    .modal-header.navy { background:linear-gradient(135deg,var(--navy),var(--navy-light)); color:#fff; }
+    .modal-header.navy .btn-close { filter:invert(1); }
+
+    /* ── Product badges ── */
+    .product-chip {
+      display:inline-flex; align-items:center; gap:5px;
+      padding:3px 10px; border-radius:20px; font-size:.72rem;
+      font-weight:600; white-space:nowrap;
+    }
+
+    /* ── Scrollbars ── */
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:#f1f5f9; }
+    ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+
+    @media(max-width:768px){
+      .sidebar { display:none; }
+      .content { padding:1rem; }
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+{% if current_user.is_authenticated %}
+{# ═══════════ SIDEBAR ═══════════ #}
+<nav class="sidebar">
+  <div class="brand">
+    <div class="logo-text"><i class="bi bi-diagram-3-fill" style="-webkit-text-fill-color:var(--teal);margin-right:6px;"></i>RELAY</div>
+    {% if client_name %}
+      <div class="client-label">{{ client_name }}</div>
+    {% endif %}
+  </div>
+
+  {# ── GLOBAL: Scheduling & Forwarding ── #}
+  <div class="nav-section">Scheduling &amp; Forwarding</div>
+
+  <a class="nav-link {% if request.endpoint and 'schedule_csv' in request.endpoint %}active{% endif %}"
+     href="{{ url_for('schedule_csv.index') }}">
+    <i class="bi bi-calendar2-week"></i>Schedules
+    {# Badge shows only the platform(s) this user can see #}
+    {% if current_user.is_admin() %}
+      {% if has_teams %}<span class="plat-badge" style="background:#6264A7;">T</span>{% endif %}
+      {% if has_webex %}<span class="plat-badge" style="background:#00BCEB;color:#000;">W</span>{% endif %}
+      {% if has_cucm  %}<span class="plat-badge" style="background:#049fd9;">C</span>{% endif %}
+    {% elif current_user.user_platform == 'teams' and has_teams %}
+      <span class="plat-badge" style="background:#6264A7;">T</span>
+    {% elif current_user.user_platform == 'webex' and has_webex %}
+      <span class="plat-badge" style="background:#00BCEB;color:#000;">W</span>
+    {% elif current_user.user_platform == 'cucm' and has_cucm %}
+      <span class="plat-badge" style="background:#049fd9;">C</span>
+    {% endif %}
+  </a>
+
+  <a class="nav-link {% if request.endpoint and 'schedule.' in request.endpoint %}active{% endif %}"
+     href="{{ url_for('schedule.index') }}">
+    <i class="bi bi-arrow-left-right"></i>Manual Forward
+  </a>
+
+  {# ── TEAMS ──────────────────────────────────────────────────────────────
+     Admin sees Teams regardless of own platform.
+     Superuser and user only see Teams if their user_platform == 'teams'.
+  #}
+  {% if has_teams and (current_user.is_admin() or current_user.user_platform == 'teams') %}
+  <div class="nav-section">Teams</div>
+  <a class="nav-link {% if request.endpoint and 'extension' in request.endpoint and 'webex' not in request.endpoint and 'cucm' not in request.endpoint %}active{% endif %}"
+     href="{{ url_for('extension.index') }}">
+    <i class="bi bi-search"></i>
+    {% if current_user.is_admin() %}Lookup &amp; Forwarding{% else %}My Teams Number{% endif %}
+    <span class="plat-badge" style="background:#6264A7;">MS</span>
+  </a>
+  {% endif %}
+
+  {# ── WEBEX ──────────────────────────────────────────────────────────────
+     Admin sees Webex regardless of own platform.
+     Superuser and user only see Webex if their user_platform == 'webex'.
+  #}
+  {% if has_webex and (current_user.is_admin() or current_user.user_platform == 'webex') %}
+  <div class="nav-section">Webex</div>
+  <a class="nav-link {% if request.endpoint and 'webex' in request.endpoint %}active{% endif %}"
+     href="{{ url_for('webex_extension.index') }}">
+    <i class="bi bi-search"></i>
+    {% if current_user.is_admin() %}Lookup &amp; Forwarding{% else %}My Webex Number{% endif %}
+    <span class="plat-badge" style="background:#00BCEB;color:#000;">WX</span>
+  </a>
+  {% endif %}
+
+  {# ── CUCM ───────────────────────────────────────────────────────────────
+     Admin sees CUCM regardless of own platform.
+     Superuser and user only see CUCM if their user_platform == 'cucm'.
+  #}
+  {% if has_cucm and (current_user.is_admin() or current_user.user_platform == 'cucm') %}
+  <div class="nav-section">CUCM</div>
+  <a class="nav-link {% if request.endpoint and 'cucm' in request.endpoint %}active{% endif %}"
+     href="{{ url_for('cucm.index') }}">
+    <i class="bi bi-search"></i>
+    {% if current_user.is_admin() %}Lookup &amp; Forwarding{% else %}My CUCM Extension{% endif %}
+    <span class="plat-badge" style="background:#049fd9;">UC</span>
+  </a>
+  {% endif %}
+
+  {% if current_user.is_admin() %}
+  <div class="nav-section">Admin</div>
+  <a class="nav-link {% if request.endpoint == 'admin.index' %}active{% endif %}"
+     href="{{ url_for('admin.index') }}">
+    <i class="bi bi-gear-fill"></i>Admin Panel
+  </a>
+  {% if has_did %}
+  <a class="nav-link {% if request.endpoint and 'did' in request.endpoint %}active{% endif %}"
+     href="{{ url_for('admin.did_index') }}">
+    <i class="bi bi-grid-3x3"></i>DID Management
+  </a>
+  {% endif %}
+  {% if has_ldap %}
+  <a class="nav-link {% if request.endpoint and 'ldap_mgmt' in request.endpoint %}active{% endif %}"
+     href="{{ url_for('ldap_mgmt.index') }}">
+    <i class="bi bi-diagram-3"></i>LDAP Sync
+  </a>
+  {% endif %}
+  {% if has_cert_monitor %}
+  <a class="nav-link {% if request.endpoint and 'cert_monitor' in request.endpoint %}active{% endif %}"
+     href="{{ url_for('cert_monitor.index') }}">
+    <i class="bi bi-shield-check"></i>Cert Monitor
+  </a>
+  {% endif %}
+  <a class="nav-link {% if request.endpoint == 'admin.audit_logs' %}active{% endif %}"
+     href="{{ url_for('admin.audit_logs') }}">
+    <i class="bi bi-journal-text"></i>Audit Logs
+  </a>
+  {% endif %}
+
+  <div class="sidebar-footer">
+    <a href="{{ url_for('auth.change_password') }}"><i class="bi bi-key"></i>Change Password</a>
+    <a href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right"></i>Logout</a>
+  </div>
+</nav>
+
+{# ═══════════ MAIN ═══════════ #}
+<div class="main">
+  <div class="topbar">
+    <div class="user-chip">
+      <div class="avatar">{{ current_user.username[:2].upper() }}</div>
+      <span>{{ current_user.display_name or current_user.username }}</span>
+      <span class="badge {% if current_user.is_admin() %}bg-warning text-dark{% elif current_user.is_superuser() %}bg-primary{% else %}bg-secondary{% endif %} ms-1" style="font-size:.65rem;">
+        {{ current_user.role }}
+      </span>
+    </div>
+    <div class="plat-pills">
+      {% if has_teams %}
+        <span class="plat-pill" style="background:#ede9fe;color:#4a4c89;border-color:#c4b5fd;">
+          <i class="bi bi-circle-fill" style="font-size:.45rem;"></i> Teams
+        </span>
+      {% endif %}
+      {% if has_webex %}
+        <span class="plat-pill" style="background:#e0f7fd;color:#007fa3;border-color:#7dd3fc;">
+          <i class="bi bi-circle-fill" style="font-size:.45rem;"></i> Webex
+        </span>
+      {% endif %}
+      {% if has_cucm %}
+        <span class="plat-pill" style="background:#e0f2fe;color:#0369a1;border-color:#7dd3fc;">
+          <i class="bi bi-circle-fill" style="font-size:.45rem;"></i> CUCM
+        </span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="px-4 pt-3">
+        {% for cat, msg in messages %}
+          <div class="alert alert-{{ cat }} alert-dismissible fade show py-2 mb-2" role="alert">
+            <i class="bi {{ 'bi-check-circle' if cat=='success' else 'bi-exclamation-triangle' if cat=='warning' else 'bi-x-circle' if cat=='danger' else 'bi-info-circle' }} me-2"></i>
+            {{ msg }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="content">
+    {% block content_auth %}{% endblock %}
+  </div>
+</div>
+
+{% else %}
+  {% block content_unauth %}{% endblock %}
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Number Lookup{% if can_manage_others %} & Forwarding{% endif %} — RELAY{% endblock %}
+{% block content_auth %}
+
+<div class="page-header">
+  <div>
+    <h5>
+      <i class="bi bi-search me-2 text-primary"></i>
+      {% if can_manage_others %}
+        Teams Number Lookup &amp; Forwarding
+      {% else %}
+        My Number &amp; Forwarding
+      {% endif %}
+    </h5>
+    {% if not can_manage_others %}
+    <p class="text-muted small mb-0">
+      Showing your number only. Contact an admin or superuser to manage other users.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="input-group">
+      <span class="input-group-text bg-light"><i class="bi bi-search"></i></span>
+      <input type="text" id="searchInput" class="form-control"
+             placeholder="{% if can_manage_others %}Search by name, UPN or email…{% else %}Enter your UPN or extension{% endif %}"
+             autocomplete="off"
+             {% if not can_manage_others and own_upn %}value="{{ own_upn }}"{% endif %}>
+      <button class="btn btn-navy" onclick="doSearch()">Search</button>
+    </div>
+    {% if can_manage_others %}
+    <div class="form-text">Search Display Name, UPN, or email across the Teams directory.</div>
+    {% else %}
+    <div class="form-text">You can only look up and manage your own extension.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="spinner" class="text-center py-4" style="display:none;">
+  <div class="spinner-border text-primary"></div>
+  <div class="text-muted small mt-2">Searching Teams directory…</div>
+</div>
+
+<div id="error-box" class="alert alert-danger py-2 small" style="display:none;"></div>
+
+<div id="results-section" style="display:none;">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span class="fw-semibold" id="result-count"></span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th>Display Name</th>
+          <th>UPN</th>
+          <th>Phone Numbers</th>
+          <th>Object ID</th>
+          {% if can_manage_others %}
+          <th>Forward to</th>
+          <th class="text-end">Action</th>
+          {% else %}
+          <th>Forward to</th>
+          <th class="text-end">My Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="empty-box" class="card" style="display:none;">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-person-x fs-3 d-block mb-2"></i>
+    No users found matching your search.
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CAN_MANAGE = {{ 'true' if can_manage_others else 'false' }};
+const OWN_UPN    = {{ ('"' ~ own_upn ~ '"') | safe }};
+let searchTimer;
+
+document.getElementById("searchInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") { clearTimeout(searchTimer); doSearch(); }
+});
+
+function doSearch() {
+  const q = document.getElementById("searchInput").value.trim();
+  if (q.length < 2) return;
+  document.getElementById("spinner").style.display = "block";
+  document.getElementById("error-box").style.display = "none";
+  document.getElementById("results-section").style.display = "none";
+  document.getElementById("empty-box").style.display = "none";
+
+  fetch("/extension/lookup?q=" + encodeURIComponent(q))
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById("spinner").style.display = "none";
+      if (data.error) {
+        document.getElementById("error-box").textContent = data.error;
+        document.getElementById("error-box").style.display = "block";
+        return;
+      }
+      if (!data.length) {
+        document.getElementById("empty-box").style.display = "block";
+        return;
+      }
+      document.getElementById("result-count").textContent =
+        data.length + " result" + (data.length > 1 ? "s" : "");
+      const tbody = document.getElementById("results-body");
+      tbody.innerHTML = "";
+      data.forEach(u => {
+        const phones = (u.phones || [])
+          .map(p => `<span class="badge bg-light text-dark border font-monospace me-1">${esc(p)}</span>`)
+          .join("") || "<span class='text-muted small'>—</span>";
+        const fwdId = "fwd_" + u.id;
+        // Show forwarding controls for:
+        //   - admin/superuser: for any user
+        //   - regular user: only for their own UPN
+        const showFwd = CAN_MANAGE || u.upn.toLowerCase() === OWN_UPN.toLowerCase();
+        tbody.innerHTML += `
+          <tr>
+            <td class="fw-semibold">${esc(u.displayName)}</td>
+            <td class="font-monospace small">${esc(u.upn)}</td>
+            <td>${phones}</td>
+            <td class="font-monospace small text-muted">${esc(u.id).substring(0,12)}…</td>
+            <td style="min-width:180px;">
+              ${showFwd ? `<input type="text" id="${fwdId}" class="form-control form-control-sm font-monospace"
+                            placeholder="+3227009999 or 1001">` : `<span class="text-muted small">—</span>`}
+            </td>
+            <td class="text-end" style="white-space:nowrap;">
+              ${showFwd ? `
+                <button class="btn btn-sm btn-success py-0 px-2" style="font-size:.78rem;"
+                        onclick="setForward('${esc(u.id)}','${esc(u.upn)}','','enable')">
+                  <i class="bi bi-telephone-forward me-1"></i>Enable
+                </button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-2 ms-1" style="font-size:.78rem;"
+                        onclick="setForward('${esc(u.id)}','${esc(u.upn)}','','disable')">
+                  <i class="bi bi-x-lg me-1"></i>Disable
+                </button>
+              ` : `<span class="badge bg-secondary" style="font-size:.7rem;">no access</span>`}
+            </td>
+          </tr>`;
+      });
+      document.getElementById("results-section").style.display = "block";
+    })
+    .catch(err => {
+      document.getElementById("spinner").style.display = "none";
+      document.getElementById("error-box").textContent = "Request failed: " + err;
+      document.getElementById("error-box").style.display = "block";
+    });
+}
+
+function setForward(personId, upn, sipUri, action) {
+  const fwdInput = document.getElementById("fwd_" + personId);
+  const fwdTo    = fwdInput ? fwdInput.value.trim() : "";
+  if (action === "enable" && !fwdTo) {
+    fwdInput.classList.add("is-invalid");
+    fwdInput.focus();
+    return;
+  }
+  if (fwdInput) fwdInput.classList.remove("is-invalid");
+
+  const body = new URLSearchParams({
+    person_id:  personId,
+    teams_upn:  upn,
+    forward_to: fwdTo,
+    sip_uri:    sipUri,
+    action:     action,
+  });
+
+  fetch("/extension/forward", { method:"POST", body })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const toast = document.createElement("div");
+        toast.className = "alert alert-success py-2 small position-fixed bottom-0 end-0 m-3";
+        toast.style.zIndex = "9999";
+        toast.textContent = d.message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+      } else {
+        alert("Error: " + (d.error || "Unknown error"));
+      }
+    })
+    .catch(e => alert("Request failed: " + e));
+}
+
+function esc(s) {
+  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+{% if not can_manage_others and own_upn %}
+window.addEventListener("DOMContentLoaded", () => doSearch());
+{% endif %}
+</script>
+{% endblock %}

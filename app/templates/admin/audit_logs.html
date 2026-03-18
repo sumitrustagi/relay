@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Audit Logs — RELAY{% endblock %}
+{% block content_auth %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-journal-text me-2 text-primary"></i>Audit Logs</h5>
+  <a href="{{ url_for('admin.export_audit_logs') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-download me-1"></i>Export CSV
+  </a>
+</div>
+
+{# Filter bar #}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label form-label-sm fw-semibold">Username</label>
+        <input type="text" name="username" class="form-control form-control-sm"
+               placeholder="Filter by username…" value="{{ request.args.get('username','') }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label form-label-sm fw-semibold">Action</label>
+        <select name="action" class="form-select form-select-sm">
+          <option value="">— All Actions —</option>
+          {% for a in ['LOGIN','LOGOUT','CREATE','UPDATE','DELETE','READ','ACTION','EXPORT'] %}
+          <option value="{{ a }}" {{ 'selected' if request.args.get('action')==a }}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-sm text-white w-100">
+          <i class="bi bi-funnel me-1"></i>Filter
+        </button>
+      </div>
+      <div class="col-md-2">
+        <a href="{{ url_for('admin.audit_logs') }}" class="btn btn-sm btn-outline-secondary w-100">
+          Clear
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header navy d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-ul me-2"></i>Events</span>
+    <span class="badge bg-light text-dark">{{ logs|length }}</span>
+  </div>
+  {% if logs %}
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>Timestamp</th><th>User</th><th>Role</th>
+            <th>Action</th><th>Resource</th><th>Detail</th>
+            <th>IP</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in logs %}
+          <tr>
+            <td class="font-monospace small text-nowrap">
+              {{ l.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+            </td>
+            <td class="fw-semibold small">{{ l.username }}</td>
+            <td><span class="badge {{ 'bg-danger' if l.user_role=='admin' else 'bg-secondary' }}">
+              {{ l.user_role or '—' }}</span></td>
+            <td>
+              {% set colours = {'LOGIN':'primary','LOGOUT':'secondary','CREATE':'success',
+                                'UPDATE':'info','DELETE':'danger','ACTION':'warning',
+                                'READ':'light','EXPORT':'dark'} %}
+              <span class="badge bg-{{ colours.get(l.action,'secondary') }}
+                           {{ 'text-dark' if l.action in ['READ','EXPORT'] else '' }}">
+                {{ l.action }}
+              </span>
+            </td>
+            <td class="small text-muted">{{ l.resource or '—' }}</td>
+            <td class="small" style="max-width:280px;white-space:normal;">
+              {{ l.detail or '—' }}
+            </td>
+            <td class="font-monospace small">{{ l.ip_address or '—' }}</td>
+            <td>
+              <span class="badge {{ 'bg-success' if l.status=='OK' else 'bg-danger' }}">
+                {{ l.status }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-journal-x fs-3 d-block mb-2"></i>
+    No audit log entries found for the selected filter.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
