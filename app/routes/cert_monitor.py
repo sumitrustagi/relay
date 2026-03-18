@@ -197,7 +197,369 @@ def _upload_cert_logic(obj, request_obj):
     return pem_text, cert_info
 
 
-# ── Index ──────────────────────────────────────────────────────
+def _result_from_pem(pem_text, source_id, source_type, flash_fn=None):
+    """
+    Build a CertResult from an uploaded PEM chain rather than a live scan.
+    Sets checked_at 1 second ahead of now so it always sorts above older scan results.
+    Returns a CertResult instance (not yet committed), or None if parsing fails.
+    """
+    import re as _re
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    # Set 1 second in the future so this result always sorts first (desc order)
+    checked_at = datetime.utcnow() + timedelta(seconds=1)
+
+    def _make(risk, days_left, not_before, not_after,
+              issuer_org, issuer_cn, subject_cn, san_count, error=None):
+        kwargs = dict(
+            risk=risk, days_left=days_left,
+            not_before=not_before, not_after=not_after,
+            issuer_org=issuer_org, issuer_cn=issuer_cn,
+            subject_cn=subject_cn, san_count=san_count,
+            error=error, checked_at=checked_at,
+        )
+        if source_type == "domain":
+            kwargs["domain_id"] = source_id
+        else:
+            kwargs["device_id"] = source_id
+        return CertResult(**kwargs)
+
+    try:
+        from cryptography import x509 as _x509
+
+        # Normalise alternate PEM headers so cryptography can parse them
+        normalised = pem_text
+        for alt in ("-----BEGIN X509 CERTIFICATE-----",
+                    "-----BEGIN TRUSTED CERTIFICATE-----",
+                    "-----BEGIN CERTIFICATE CHAIN-----"):
+            normalised = normalised.replace(
+                alt, "-----BEGIN CERTIFICATE-----"
+            ).replace(
+                alt.replace("BEGIN", "END"), "-----END CERTIFICATE-----"
+            )
+
+        blocks = _re.findall(
+            r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+            normalised, _re.DOTALL
+        )
+        if not blocks:
+            if flash_fn:
+                flash_fn("Uploaded PEM contained no parseable certificate blocks.", "warning")
+            return None
+
+        leaf = _x509.load_pem_x509_certificate(blocks[0].encode())
+
+        try:
+            not_after  = leaf.not_valid_after_utc
+            not_before = leaf.not_valid_before_utc
+        except AttributeError:
+            not_after  = leaf.not_valid_after.replace(tzinfo=timezone.utc)
+            not_before = leaf.not_valid_before.replace(tzinfo=timezone.utc)
+
+        days_left = (not_after - now).days
+        if days_left < 0:    risk = "EXPIRED"
+        elif days_left <= 7:  risk = "CRITICAL"
+        elif days_left <= 30: risk = "WARNING"
+        elif days_left <= 60: risk = "ATTENTION"
+        else:                 risk = "HEALTHY"
+
+        NameOID = _x509.oid.NameOID
+        def _attr(name_obj, oid):
+            a = name_obj.get_attributes_for_oid(oid)
+            return a[0].value if a else "—"
+
+        issuer_org = _attr(leaf.issuer,  NameOID.ORGANIZATION_NAME)
+        issuer_cn  = _attr(leaf.issuer,  NameOID.COMMON_NAME)
+        subject_cn = _attr(leaf.subject, NameOID.COMMON_NAME)
+        try:
+            san_ext = leaf.extensions.get_extension_for_class(_x509.SubjectAlternativeName)
+            sans = san_ext.value.get_values_for_type(_x509.DNSName)
+        except Exception:
+            sans = []
+
+        return _make(risk, days_left,
+                     not_before.strftime("%Y-%m-%d"),
+                     not_after.strftime("%Y-%m-%d"),
+                     issuer_org, issuer_cn, subject_cn, len(sans))
+
+    except ImportError:
+        # cryptography not installed — create a minimal placeholder result
+        # so the dashboard at least stops showing the old scan error
+        if flash_fn:
+            flash_fn("Install the 'cryptography' package for full cert parsing. "
+                     "Certificate stored but details unavailable.", "warning")
+        return _make("UNKNOWN", None, None, None, "—", "—", "—", 0,
+                     error="cryptography package not installed — cert stored, deploy to device then scan")
+
+    except Exception as e:
+        if flash_fn:
+            flash_fn(f"Certificate stored but could not parse details: {e}", "warning")
+        return _make("UNKNOWN", None, None, None, "—", "—", "—", 0,
+                     error=f"Parse error: {e}")
+
+
+def _push_oracle_cert(device, pem_text):
+    """
+    Push certificate to Oracle/Acme Packet SBC via REST API v1.2.
+    Flow: authenticate → lock → import cert XML → save → activate → unlock
+    Returns (ok: bool, message: str)
+    """
+    import requests, urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    host     = device.ip_address or device.hostname
+    port     = device.mgmt_port  or 443
+    username = device.username   or "admin"
+    password = device.password   or ""
+    base     = f"https://{host}:{port}/rest/v1.2"
+    timeout  = 15
+
+    try:
+        # 1. Get bearer token
+        r = requests.post(f"{base}/auth/token",
+                          json={"username": username, "password": password},
+                          verify=False, timeout=timeout)
+        if r.status_code != 200:
+            return False, f"Oracle auth failed: HTTP {r.status_code} — {r.text[:200]}"
+        token = r.json().get("access_token") or r.json().get("token")
+        if not token:
+            return False, f"Oracle auth: no token in response — {r.text[:200]}"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 2. Lock configuration
+        r = requests.post(f"{base}/configuration/lock", headers=headers,
+                          verify=False, timeout=timeout)
+        if r.status_code not in (200, 204):
+            return False, f"Oracle config lock failed: HTTP {r.status_code}"
+
+        record_name = (device.csr_cn or device.hostname).replace(".", "_")
+        cert_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ImportCertificate>
+  <recordName>{record_name}</recordName>
+  <format>x509</format>
+  <certificateRequest>{pem_text.strip()}</certificateRequest>
+</ImportCertificate>"""
+
+        # 3. Import certificate
+        r = requests.put(f"{base}/configuration/certificates/import",
+                         headers={**headers, "Content-Type": "application/xml"},
+                         data=cert_xml.encode(),
+                         verify=False, timeout=timeout)
+        if r.status_code not in (200, 204):
+            requests.post(f"{base}/configuration/unlock", headers=headers,
+                          verify=False, timeout=timeout)
+            return False, f"Oracle cert import failed: HTTP {r.status_code} — {r.text[:300]}"
+
+        # 4. Save config
+        requests.post(f"{base}/configuration/save", headers=headers,
+                      verify=False, timeout=timeout)
+
+        # 5. Activate config
+        requests.post(f"{base}/configuration/activate", headers=headers,
+                      verify=False, timeout=timeout)
+
+        # 6. Unlock
+        requests.post(f"{base}/configuration/unlock", headers=headers,
+                      verify=False, timeout=timeout)
+
+        return True, "Certificate successfully pushed to Oracle Acme Packet SBC (device reboot may be required)"
+
+    except requests.exceptions.ConnectTimeout:
+        return False, f"Timed out connecting to {host}:{port}"
+    except requests.exceptions.ConnectionError as e:
+        return False, f"Could not connect to {host}:{port} — {e}"
+    except Exception as e:
+        return False, f"Oracle push error: {e}"
+
+
+def _push_ribbon_cert(device, pem_text):
+    """
+    Push certificate to Ribbon SBC Edge (1000/2000/SWe Lite) via REST API.
+    Flow: login (session cookie) → POST certificate multipart → logout
+    Returns (ok: bool, message: str)
+    """
+    import requests, urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    host     = device.ip_address or device.hostname
+    port     = device.mgmt_port  or 443
+    username = device.username   or "admin"
+    password = device.password   or ""
+    base     = f"https://{host}:{port}/rest"
+    timeout  = 15
+
+    session = requests.Session()
+    session.verify = False
+
+    try:
+        # 1. Login — returns session token cookie
+        r = session.post(f"{base}/login",
+                         data={"Username": username, "Password": password},
+                         timeout=timeout)
+        if r.status_code not in (200, 201):
+            return False, f"Ribbon login failed: HTTP {r.status_code} — {r.text[:200]}"
+
+        # 2. Upload certificate as multipart file
+        r = session.post(
+            f"{base}/v1/certificate",
+            files={"file": ("cert.pem", pem_text.encode(), "application/x-pem-file")},
+            timeout=timeout,
+        )
+
+        # 3. Logout cleanly
+        try:
+            session.post(f"{base}/logout", timeout=5)
+        except Exception:
+            pass
+
+        if r.status_code in (200, 201):
+            return True, "Certificate successfully pushed to Ribbon SBC Edge"
+        else:
+            return False, f"Ribbon cert upload failed: HTTP {r.status_code} — {r.text[:300]}"
+
+    except requests.exceptions.ConnectTimeout:
+        return False, f"Timed out connecting to {host}:{port}"
+    except requests.exceptions.ConnectionError as e:
+        return False, f"Could not connect to {host}:{port} — {e}"
+    except Exception as e:
+        return False, f"Ribbon push error: {e}"
+
+
+def _push_cert_to_device(device, pem_text):
+    """
+    Dispatcher — calls the correct push function based on product_type.
+    Returns (ok: bool, message: str)
+    """
+    pt = device.product_type
+
+    if pt == "audiocodes_sbc":
+        return _push_audiocodes_cert(device, pem_text)
+
+    elif pt == "oracle_sbc":
+        return _push_oracle_cert(device, pem_text)
+
+    elif pt == "ribbon_sbc":
+        return _push_ribbon_cert(device, pem_text)
+
+    elif pt == "anynode_sbc":
+        try:
+            from app.utils.cisco_cert_push import push_anynode_cert_ssh
+            return push_anynode_cert_ssh(device, pem_text)
+        except ImportError as e:
+            return False, f"cisco_cert_push module not found: {e}"
+
+    elif pt == "cisco_cucm":
+        try:
+            from app.utils.cisco_cert_push import push_cucm_cert
+            return push_cucm_cert(device, pem_text)
+        except ImportError as e:
+            return False, f"cisco_cert_push module not found: {e}"
+
+    elif pt in ("cisco_sbc", "cisco_gw"):
+        try:
+            from app.utils.cisco_cert_push import push_cube_cert_ssh
+            return push_cube_cert_ssh(device, pem_text)
+        except ImportError as e:
+            return False, f"cisco_cert_push module not found: {e}"
+
+    elif pt == "cisco_expressway":
+        try:
+            from app.utils.cisco_cert_push import push_expressway_cert
+            return push_expressway_cert(device, pem_text)
+        except ImportError as e:
+            return False, f"cisco_cert_push module not found: {e}"
+
+    else:
+        return (False,
+                f"Automated certificate push is not yet supported for '{pt}'. "
+                "Please deploy the certificate manually, then click Scan to verify.")
+
+
+    """
+    Push the signed certificate (and private key if stored) to an AudioCodes SBC
+    via its REST API.
+
+    Steps:
+      1. GET /api/v1/files/tls          → discover available TLS context IDs
+      2. PUT /api/v1/files/tls/<id>/privateKey   (if private key available)
+      3. PUT /api/v1/files/tls/<id>/certificate
+
+    Returns (ok: bool, message: str)
+    """
+    import requests, urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    host     = device.ip_address or device.hostname
+    port     = device.mgmt_port  or 443
+    username = device.username   or "Admin"
+    password = device.password   or ""
+    auth     = (username, password)
+    timeout  = 15
+    base     = f"https://{host}:{port}/api/v1"
+
+    # 1. Discover TLS context IDs — default is index 0 on AudioCodes
+    tls_id = 0
+    try:
+        r = requests.get(f"{base}/files/tls", auth=auth,
+                         verify=False, timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            contexts = data.get("tls", [])
+            if contexts:
+                # Use the first context (usually "default") unless device stores a preferred one
+                tls_id = contexts[0].get("id", 0)
+    except Exception:
+        pass  # fall through to default 0
+
+    tls_base = f"{base}/files/tls/{tls_id}"
+    key_errors = []
+
+    # 2. Push private key (camelCase endpoint: /privateKey)
+    if device.private_key_pem:
+        try:
+            r = requests.put(
+                f"{tls_base}/privateKey",
+                auth=auth,
+                files={"file": ("private.key",
+                                device.private_key_pem.encode(),
+                                "application/octet-stream")},
+                verify=False, timeout=timeout,
+            )
+            if r.status_code not in (200, 204):
+                key_errors.append(f"HTTP {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            key_errors.append(str(e))
+
+    # 3. Push certificate chain
+    try:
+        r = requests.put(
+            f"{tls_base}/certificate",
+            auth=auth,
+            files={"file": ("cert.pem",
+                            pem_text.encode(),
+                            "application/octet-stream")},
+            verify=False, timeout=timeout,
+        )
+        if r.status_code == 200:
+            if key_errors:
+                return False, ("Certificate pushed OK but private key failed — "
+                               + "; ".join(key_errors))
+            return True, f"Certificate successfully pushed to AudioCodes SBC (TLS context {tls_id})"
+        elif r.status_code == 400:
+            return False, f"AudioCodes rejected the certificate: {r.text[:300]}"
+        elif r.status_code == 409:
+            return False, ("AudioCodes returned 409 — device may be synchronising, "
+                           "wait a moment then try again")
+        else:
+            return False, f"AudioCodes returned HTTP {r.status_code}: {r.text[:300]}"
+    except requests.exceptions.ConnectTimeout:
+        return False, f"Timed out connecting to {host}:{port} — check IP/port/firewall"
+    except requests.exceptions.ConnectionError as e:
+        return False, f"Could not connect to {host}:{port} — {e}"
+    except Exception as e:
+        return False, f"Push error: {e}"
+
+
 @cert_bp.route("/")
 @admin_required
 def index():
@@ -431,6 +793,9 @@ def upload_cert(did):
         return redirect(url_for("cert_monitor.index"))
     d.cert_chain_pem   = pem
     d.cert_uploaded_at = datetime.now(timezone.utc)
+    cr = _result_from_pem(pem, d.id, "domain", flash_fn=flash)
+    if cr:
+        db.session.add(cr)
     db.session.commit()
     log_audit("ACTION", "cert_domain", did, f"Cert uploaded {d.hostname}")
     flash(f"Certificate stored: {info}", "success")
@@ -484,9 +849,27 @@ def upload_device_cert(did):
         return redirect(url_for("cert_monitor.index"))
     d.cert_chain_pem   = pem
     d.cert_uploaded_at = datetime.now(timezone.utc)
+    # Create a CertResult from the uploaded PEM so the dashboard reflects it immediately
+    cr = _result_from_pem(pem, d.id, "device", flash_fn=flash)
+    if cr:
+        db.session.add(cr)
     db.session.commit()
     log_audit("ACTION", "cert_device", did, f"Cert uploaded {d.hostname}")
     flash(f"Certificate stored for device: {info}", "success")
+
+    # Auto-push to device via REST API
+    if not (d.ip_address or d.hostname) or not d.username:
+        flash("Certificate stored but not pushed — device has no IP/username configured.", "warning")
+    else:
+        try:
+            ok, msg = _push_cert_to_device(d, pem)
+            if ok:
+                flash(f"✓ Pushed to device: {msg}", "success")
+            else:
+                flash(f"Certificate stored but push to device failed: {msg}", "warning")
+        except Exception as e:
+            flash(f"Certificate stored but push failed unexpectedly: {e}", "danger")
+
     return redirect(url_for("cert_monitor.index"))
 
 
