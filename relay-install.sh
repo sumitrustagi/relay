@@ -471,13 +471,6 @@ SMTP_ENABLED=false
 
 # LDAP — set via Admin → LDAP Sync
 
-# ── Bootstrap admin account ───────────────────────────────────
-# Used by _bootstrap_admin() on first boot to create the GUI admin user.
-# After the first login, change your password via the GUI.
-# These vars are safe to remove from .env once the account is created.
-RELAY_ADMIN_USER=${ADMIN_USER}
-RELAY_ADMIN_PASS=${ADMIN_PASS}
-RELAY_ADMIN_EMAIL=${ADMIN_EMAIL}
 ENVEOF
 chown "$APP_USER":"$APP_USER" "$INSTALL_DIR/.env"
 chmod 600 "$INSTALL_DIR/.env"
@@ -493,19 +486,11 @@ sudo -u "$APP_USER" bash -c "
   export RELAY_UPLOAD_DIR='${UPLOAD_DIR}'
   cd '${INSTALL_DIR}'
 
-  # Always use flask db upgrade — migrations/ folder is included in the package.
-  # This is idempotent: safe to run on both fresh installs and upgrades.
   if [ -f migrations/env.py ]; then
     flask db upgrade
   else
-    # Fallback: migrations folder missing (should not happen with a full package)
-    python3 -c \"
-from run import app
-from app import db
-with app.app_context():
-    db.create_all()
-    print('Tables created via db.create_all()')
-\"
+    echo 'ERROR: migrations/env.py not found; cannot initialise database.' >&2
+    exit 1
   fi
 "
 echo 75
@@ -548,6 +533,7 @@ with flask_app.app_context():
     ps.has_cert_monitor = ${HAS_CERT_MONITOR}
     ps.has_did          = ${HAS_DID}
     ps.has_ldap         = ${HAS_LDAP}
+    ps.has_audit        = ${HAS_AUDIT}
     ps.client_name      = '$(pyesc "${CLIENT_NAME}")'
     db.session.commit()
     print("Seed complete — admin user and platform settings saved.")
