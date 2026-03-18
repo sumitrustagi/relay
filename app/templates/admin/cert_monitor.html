@@ -246,6 +246,9 @@
           {% if d.username %}
           <div class="row-kv"><span class="kv-label">User</span><span class="kv-val">{{ d.username }}</span></div>
           {% endif %}
+          {% if d.ssh_port %}
+          <div class="row-kv"><span class="kv-label">SSH Port</span><span class="kv-val">{{ d.ssh_port }}</span></div>
+          {% endif %}
           {% if d.csr_pem %}
           <div class="row-kv"><span class="kv-label">CSR</span>
             <span class="badge" style="background:#fef3c7;color:#92400e;font-size:.65rem;">Generated {{ d.csr_generated_at.strftime('%Y-%m-%d') if d.csr_generated_at else '' }}</span>
@@ -387,7 +390,7 @@
             <label class="form-label fw-semibold small">Password</label>
             <input type="password" name="password" class="form-control form-control-sm" placeholder="••••••••">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label fw-semibold small">Transport</label>
             <select name="transport" class="form-select form-select-sm">
               <option value="tls" selected>TLS</option>
@@ -395,13 +398,17 @@
               <option value="udp">UDP</option>
             </select>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label fw-semibold small">SIP Port (optional)</label>
             <input type="number" name="sip_port" class="form-control form-control-sm" placeholder="5061">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label fw-semibold small">Mgmt Port (optional)</label>
             <input type="number" name="mgmt_port" class="form-control form-control-sm" placeholder="8443">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">SSH Port (optional)</label>
+            <input type="number" name="ssh_port" class="form-control form-control-sm" placeholder="22">
           </div>
         </div>
       </div>
