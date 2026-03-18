@@ -16,7 +16,7 @@ def create_app(env="production"):
 
     db.init_app(app)
     login_manager.init_app(app)
-    migrate.init_app(app, db)   # ← Flask-Migrate wired here
+    migrate.init_app(app, db)
 
     from app.routes.auth import auth_bp
     from app.routes.admin import admin_bp
@@ -28,17 +28,16 @@ def create_app(env="production"):
     from app.routes.webex_extension import webex_ext_bp
     from app.routes.cucm import cucm_bp
 
-    app.register_blueprint(auth_bp,       url_prefix="/auth")
-    app.register_blueprint(admin_bp,      url_prefix="/admin")
-    app.register_blueprint(extension_bp,  url_prefix="/extension")
-    app.register_blueprint(schedule_bp,   url_prefix="/schedule")
-    app.register_blueprint(schedule_csv_bp, url_prefix="/schedule-csv")
-    app.register_blueprint(cert_bp,       url_prefix="/admin/certs")
-    app.register_blueprint(ldap_bp,       url_prefix="/admin/ldap")
-    app.register_blueprint(webex_ext_bp,  url_prefix="/webex")
-    app.register_blueprint(cucm_bp,       url_prefix="/cucm")
+    app.register_blueprint(auth_bp,         url_prefix="/auth")
+    app.register_blueprint(admin_bp,         url_prefix="/admin")
+    app.register_blueprint(extension_bp,     url_prefix="/extension")
+    app.register_blueprint(schedule_bp,      url_prefix="/schedule")
+    app.register_blueprint(schedule_csv_bp,  url_prefix="/schedule-csv")
+    app.register_blueprint(cert_bp,          url_prefix="/admin/certs")
+    app.register_blueprint(ldap_bp,          url_prefix="/admin/ldap")
+    app.register_blueprint(webex_ext_bp,     url_prefix="/webex")
+    app.register_blueprint(cucm_bp,          url_prefix="/cucm")
 
-    # ── Inject platform flags + client name into every template ──────────────
     @app.context_processor
     def inject_platform():
         from app.models import PlatformSettings
@@ -56,16 +55,14 @@ def create_app(env="production"):
             )
         except Exception:
             return dict(has_teams=True, has_webex=False, has_cucm=False,
-                        has_cert_monitor=False, has_did=True, has_ldap=False, has_audit=False,
-                        client_name="")
+                        has_cert_monitor=False, has_did=True, has_ldap=False,
+                        has_audit=False, client_name="")
 
     @app.route("/")
     def index():
         return redirect(url_for("schedule_csv.index"))
 
     with app.app_context():
-        # Schema is managed by flask db upgrade (Alembic).
-        # db.create_all() removed — it bypasses migrations and causes conflicts on redeploy.
         _bootstrap_admin()
 
     from app.utils.scheduler import start_scheduler
@@ -92,8 +89,12 @@ def _bootstrap_admin():
     import logging
     log = logging.getLogger(__name__)
 
-    # Never run if any admin already exists — protects existing accounts on redeploy
-    if User.query.filter_by(role="admin").first():
+    # Guard: if the users table doesn't exist yet (pre-migration), exit silently.
+    # flask db upgrade will create the schema; _bootstrap_admin runs on next restart.
+    try:
+        if User.query.filter_by(role="admin").first():
+            return
+    except Exception:
         return
 
     username = os.getenv("RELAY_ADMIN_USER", "admin").strip() or "admin"
