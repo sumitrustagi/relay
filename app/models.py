@@ -245,7 +245,8 @@ class CertDevice(db.Model):
     # Protocol / transport
     transport    = db.Column(db.String(10), default="tls")  # tls|tcp|udp
     sip_port     = db.Column(db.Integer)        # SIP signalling port (SBCs)
-    mgmt_port    = db.Column(db.Integer)        # separate mgmt-plane port
+    mgmt_port    = db.Column(db.Integer)        # REST/web mgmt port (443, 8443, etc.)
+    ssh_port     = db.Column(db.Integer)        # SSH port for CLI-based push (default 22)
     # REST / SNMP
     api_endpoint = db.Column(db.String(255))    # REST base URL if different
     snmp_community = db.Column(db.String(100))
