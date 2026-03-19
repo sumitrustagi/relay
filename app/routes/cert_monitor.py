@@ -22,9 +22,9 @@ def admin_required(fn):
     return wrapper
 
 
-def _scan_host(hostname, port):
+def _scan_host(hostname, port, verify=True):
     from app.utils.cert_checker import check_cert
-    return check_cert(hostname, port)
+    return check_cert(hostname, port, verify=verify)
 
 
 def _make_result(source_id, source_type, res):
@@ -392,12 +392,23 @@ def _push_ribbon_cert(device, pem_text):
     session.verify = False
 
     try:
-        # 1. Login — returns session token cookie
-        r = session.post(f"{base}/login",
+        # 1. Login — Ribbon SBC Edge REST API uses /rest/v1/Login (capital L)
+        # Try primary endpoint first, fall back for older firmware versions
+        login_url = f"{base}/v1/Login"
+        r = session.post(login_url,
                          data={"Username": username, "Password": password},
                          timeout=timeout)
+        if r.status_code == 404:
+            # Older Ribbon firmware (pre-8.x) uses lowercase /login without v1
+            login_url = f"{base}/login"
+            r = session.post(login_url,
+                             data={"Username": username, "Password": password},
+                             timeout=timeout)
         if r.status_code not in (200, 201):
-            return False, f"Ribbon login failed: HTTP {r.status_code} — {r.text[:200]}"
+            return False, (
+                f"Ribbon login failed at {login_url}: HTTP {r.status_code} — {r.text[:200]}. "
+                "Check credentials and that the REST API is enabled on the Ribbon SBC."
+            )
 
         # 2. Upload certificate as multipart file
         r = session.post(
@@ -423,6 +434,120 @@ def _push_ribbon_cert(device, pem_text):
         return False, f"Could not connect to {host}:{port} — {e}"
     except Exception as e:
         return False, f"Ribbon push error: {e}"
+
+
+def _push_audiocodes_cert(device, pem_text):
+    """
+    Push the signed certificate (and private key if stored) to an AudioCodes SBC
+    via its REST API.
+
+    Steps:
+      1. GET /api/v1/files/tls          → discover available TLS context IDs
+      2. PUT /api/v1/files/tls/<id>/privateKey   (if private key is stored)
+      3. PUT /api/v1/files/tls/<id>/certificate
+
+    AudioCodes Mediant REST API Reference (v7.4+):
+      https://www.audiocodes.com/media/15197/mediant-software-sbc-rest-api.pdf
+
+    Returns (ok: bool, message: str)
+    """
+    import requests, urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    host     = device.ip_address or device.hostname
+    port     = device.mgmt_port  or 443
+    username = device.username   or "Admin"
+    password = device.password   or ""
+    auth     = (username, password)
+    timeout  = 15
+    base     = f"https://{host}:{port}/api/v1"
+
+    # 1. Discover TLS context IDs — default context is index 0 on AudioCodes
+    tls_id = 0
+    try:
+        r = requests.get(f"{base}/files/tls", auth=auth,
+                         verify=False, timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            contexts = data.get("tls", [])
+            if contexts:
+                tls_id = contexts[0].get("id", 0)
+        elif r.status_code == 401:
+            return False, (
+                f"AudioCodes authentication failed at {host}:{port} — "
+                "check username/password. Default AudioCodes credentials are Admin/Admin."
+            )
+        elif r.status_code == 404:
+            return False, (
+                f"AudioCodes REST API not found at {host}:{port}/api/v1 — "
+                "ensure device firmware is 7.4+ and REST API is enabled "
+                "(Setup → IP Network → REST Management)."
+            )
+    except requests.exceptions.ConnectTimeout:
+        return False, f"Timed out connecting to AudioCodes at {host}:{port} — check IP/port/firewall"
+    except requests.exceptions.ConnectionError as e:
+        return False, f"Could not connect to AudioCodes at {host}:{port} — {e}"
+    except Exception as e:
+        return False, f"AudioCodes TLS discovery error: {e}"
+
+    tls_base   = f"{base}/files/tls/{tls_id}"
+    key_errors = []
+
+    # 2. Push private key  (PUT /api/v1/files/tls/<id>/privateKey)
+    if device.private_key_pem:
+        try:
+            r = requests.put(
+                f"{tls_base}/privateKey",
+                auth=auth,
+                files={"file": ("private.key",
+                                device.private_key_pem.encode(),
+                                "application/octet-stream")},
+                verify=False, timeout=timeout,
+            )
+            if r.status_code not in (200, 204):
+                key_errors.append(f"Private key HTTP {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            key_errors.append(f"Private key upload error: {e}")
+
+    # 3. Push certificate chain  (PUT /api/v1/files/tls/<id>/certificate)
+    try:
+        r = requests.put(
+            f"{tls_base}/certificate",
+            auth=auth,
+            files={"file": ("cert.pem",
+                            pem_text.encode(),
+                            "application/octet-stream")},
+            verify=False, timeout=timeout,
+        )
+        if r.status_code in (200, 204):
+            if key_errors:
+                return False, (
+                    "Certificate pushed OK but private key failed — "
+                    + "; ".join(key_errors)
+                )
+            return True, (
+                f"Certificate successfully pushed to AudioCodes SBC "
+                f"(TLS context {tls_id}). "
+                "Reload the device configuration to activate "
+                "(Actions → Reload Configuration)."
+            )
+        elif r.status_code == 400:
+            return False, f"AudioCodes rejected the certificate (HTTP 400): {r.text[:300]}"
+        elif r.status_code == 401:
+            return False, "AudioCodes authentication failed during certificate upload — check credentials"
+        elif r.status_code == 409:
+            return False, (
+                "AudioCodes returned 409 Conflict — the device may be busy or locked. "
+                "Wait a moment and try again."
+            )
+        else:
+            return False, f"AudioCodes certificate upload returned HTTP {r.status_code}: {r.text[:300]}"
+    except requests.exceptions.ConnectTimeout:
+        return False, f"Timed out connecting to AudioCodes at {host}:{port}"
+    except requests.exceptions.ConnectionError as e:
+        return False, f"Could not connect to AudioCodes at {host}:{port} — {e}"
+    except Exception as e:
+        return False, f"AudioCodes push error: {e}"
 
 
 def _push_cert_to_device(device, pem_text):
@@ -473,91 +598,6 @@ def _push_cert_to_device(device, pem_text):
         return (False,
                 f"Automated certificate push is not yet supported for '{pt}'. "
                 "Please deploy the certificate manually, then click Scan to verify.")
-
-
-    """
-    Push the signed certificate (and private key if stored) to an AudioCodes SBC
-    via its REST API.
-
-    Steps:
-      1. GET /api/v1/files/tls          → discover available TLS context IDs
-      2. PUT /api/v1/files/tls/<id>/privateKey   (if private key available)
-      3. PUT /api/v1/files/tls/<id>/certificate
-
-    Returns (ok: bool, message: str)
-    """
-    import requests, urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    host     = device.ip_address or device.hostname
-    port     = device.mgmt_port  or 443
-    username = device.username   or "Admin"
-    password = device.password   or ""
-    auth     = (username, password)
-    timeout  = 15
-    base     = f"https://{host}:{port}/api/v1"
-
-    # 1. Discover TLS context IDs — default is index 0 on AudioCodes
-    tls_id = 0
-    try:
-        r = requests.get(f"{base}/files/tls", auth=auth,
-                         verify=False, timeout=timeout)
-        if r.status_code == 200:
-            data = r.json()
-            contexts = data.get("tls", [])
-            if contexts:
-                # Use the first context (usually "default") unless device stores a preferred one
-                tls_id = contexts[0].get("id", 0)
-    except Exception:
-        pass  # fall through to default 0
-
-    tls_base = f"{base}/files/tls/{tls_id}"
-    key_errors = []
-
-    # 2. Push private key (camelCase endpoint: /privateKey)
-    if device.private_key_pem:
-        try:
-            r = requests.put(
-                f"{tls_base}/privateKey",
-                auth=auth,
-                files={"file": ("private.key",
-                                device.private_key_pem.encode(),
-                                "application/octet-stream")},
-                verify=False, timeout=timeout,
-            )
-            if r.status_code not in (200, 204):
-                key_errors.append(f"HTTP {r.status_code}: {r.text[:200]}")
-        except Exception as e:
-            key_errors.append(str(e))
-
-    # 3. Push certificate chain
-    try:
-        r = requests.put(
-            f"{tls_base}/certificate",
-            auth=auth,
-            files={"file": ("cert.pem",
-                            pem_text.encode(),
-                            "application/octet-stream")},
-            verify=False, timeout=timeout,
-        )
-        if r.status_code == 200:
-            if key_errors:
-                return False, ("Certificate pushed OK but private key failed — "
-                               + "; ".join(key_errors))
-            return True, f"Certificate successfully pushed to AudioCodes SBC (TLS context {tls_id})"
-        elif r.status_code == 400:
-            return False, f"AudioCodes rejected the certificate: {r.text[:300]}"
-        elif r.status_code == 409:
-            return False, ("AudioCodes returned 409 — device may be synchronising, "
-                           "wait a moment then try again")
-        else:
-            return False, f"AudioCodes returned HTTP {r.status_code}: {r.text[:300]}"
-    except requests.exceptions.ConnectTimeout:
-        return False, f"Timed out connecting to {host}:{port} — check IP/port/firewall"
-    except requests.exceptions.ConnectionError as e:
-        return False, f"Could not connect to {host}:{port} — {e}"
-    except Exception as e:
-        return False, f"Push error: {e}"
 
 
 @cert_bp.route("/")
@@ -663,7 +703,10 @@ def scan_domain(did):
 @admin_required
 def scan_device(did):
     d = CertDevice.query.get_or_404(did)
-    res = _scan_host(d.hostname, d.port)
+    # Device scans use verify=False so we can read the certificate details
+    # even when the device uses a self-signed or internal CA certificate.
+    # Domain scans keep strict verification (default).
+    res = _scan_host(d.hostname, d.port, verify=False)
     cr = _make_result(d.id, "device", res)
     db.session.add(cr); db.session.commit()
     log_audit("READ", "cert_device", did, f"Scanned device {d.hostname}: {res['risk']}")
@@ -678,7 +721,7 @@ def scan_all():
         res = _scan_host(d.hostname, d.port)
         db.session.add(_make_result(d.id, "domain", res)); count += 1
     for d in CertDevice.query.filter_by(is_active=True).all():
-        res = _scan_host(d.hostname, d.port)
+        res = _scan_host(d.hostname, d.port, verify=False)
         db.session.add(_make_result(d.id, "device", res)); count += 1
     db.session.commit()
     log_audit("ACTION", "cert_monitor", None, f"Bulk scan: {count} items")
