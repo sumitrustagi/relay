@@ -3,12 +3,26 @@ import ssl, socket
 from datetime import datetime, timezone
 
 
-def check_cert(hostname, port=443, timeout=10):
+def check_cert(hostname, port=443, timeout=10, verify=True):
+    """
+    Retrieve and inspect a TLS certificate.
+
+    verify=True  (default): strict CA verification — best for public domains.
+    verify=False           : no CA verification — required for SBC/device certs
+                             that use self-signed or internal CA certificates.
+                             The certificate details are still fully read and
+                             reported; only the chain trust check is skipped.
+    """
     now = datetime.now(timezone.utc)
     try:
         ctx = ssl.create_default_context()
+        if not verify:
+            # Disable verification so we can read the cert even if it is
+            # self-signed or issued by an internal/private CA
+            ctx.check_hostname = False
+            ctx.verify_mode    = ssl.CERT_NONE
         with socket.create_connection((hostname, port), timeout=timeout) as raw:
-            with ctx.wrap_socket(raw, server_hostname=hostname) as tls:
+            with ctx.wrap_socket(raw, server_hostname=hostname if verify else None) as tls:
                 cert = tls.getpeercert()
         not_after  = datetime.strptime(cert["notAfter"],  "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
         not_before = datetime.strptime(cert["notBefore"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
